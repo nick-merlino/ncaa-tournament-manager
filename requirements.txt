@@ -1,0 +1,12 @@
+# requirements.txt
+Flask
+sqlalchemy
+pandas
+requests
+plotly
+kaleido
+reportlab
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
