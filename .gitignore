@@ -1,6 +1,5 @@
 credentials.json
 token.json
 venv
-NCAA_Report*
 __pycache__
 ncaa_picks.db

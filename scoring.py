@@ -53,53 +53,50 @@ def calculate_scoring():
         session.rollback()
     finally:
         session.close()
-
+        
 def get_round_game_status():
     """
-    Determines the current round in progress and groups tournament games by round.
+    Determine the current round based on TournamentResult data.
+    
+    Groups games by their base round and returns the first round with any game missing
+    a non-empty winner. If all rounds are complete, returns the last round.
+    
+    Debug logging is included.
     
     Returns:
         tuple: (current_round, round_games)
-            - current_round (str): The first round (from ROUND_ORDER) that has any game without a selected winner.
-                                   If all rounds are complete, it defaults to the last round with games.
-            - round_games (dict): A dictionary mapping round names to lists of game dictionaries. Each dictionary contains:
-                                  'game_id', 'team1', 'team2', and 'winner'.
     """
     session = SessionLocal()
     try:
         results = session.query(TournamentResult).all()
-        round_games = defaultdict(list)
+        rounds = {}
         for game in results:
-            round_games[game.round_name].append({
-                'game_id': game.game_id,
-                'team1': game.team1,
-                'team2': game.team2,
-                'winner': game.winner
+            base = game.round_name.split('-', 1)[0].strip()
+            rounds.setdefault(base, []).append({
+                "game_id": game.game_id,
+                "team1": game.team1,
+                "team2": game.team2,
+                "winner": game.winner
             })
-        
-        current_round = None
-        # Identify the first round with any game still missing a winner
-        for base_round in ROUND_ORDER:
-            games_in_round = []
-            for round_name, games in round_games.items():
-                if round_name.startswith(base_round):
-                    games_in_round.extend(games)
-            if games_in_round and any(g['winner'] is None for g in games_in_round):
-                current_round = base_round
+        for r in ROUND_ORDER:
+            if r in rounds:
+                incomplete = [g for g in rounds[r] if not (g["winner"] and g["winner"].strip())]
+                logger.info(f"Round '{r}': {len(rounds[r])} games, {len(incomplete)} incomplete.")
+        current = None
+        # Find the first round in the defined order that has any incomplete game.
+        for r in ROUND_ORDER:
+            if r in rounds and any(not (g["winner"] and g["winner"].strip()) for g in rounds[r]):
+                current = r
+                logger.info(f"Current round determined as '{current}'.")
                 break
-        
-        # If all rounds have a winner selected, choose the last round with games
-        if not current_round:
-            for base_round in reversed(ROUND_ORDER):
-                games_in_round = []
-                for round_name, games in round_games.items():
-                    if round_name.startswith(base_round):
-                        games_in_round.extend(games)
-                if games_in_round:
-                    current_round = base_round
+        if not current:
+            # If all rounds are complete, pick the last round.
+            for r in reversed(ROUND_ORDER):
+                if r in rounds:
+                    current = r
+                    logger.info(f"All rounds complete. Current round set to '{current}'.")
                     break
-        
-        return current_round, round_games
+        return current, rounds
     finally:
         session.close()
 

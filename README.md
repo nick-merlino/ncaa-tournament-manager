@@ -32,22 +32,31 @@ This project is an NCAA Tournament bracket and picks application that allows use
 
 1. Clone the Repository:
 
- bash  git clone <repository-url>  cd <repository-directory> 
+```bash
+git clone <repository-url>  cd <repository-directory>
+```
 
 2. Create a Virtual Environment:
 
- bash  python -m venv venv 
+```bash
+python -m venv venv
+```
 
 3. Activate the Virtual Environment:
 
  - On Linux/Mac:
- bash  source venv/bin/activate 
+```bash
+source venv/bin/activate
+```
  - On Windows:
- bash  venv\Scripts\activate 
+```bash
+venv\Scripts\activate
+```
 
 4. Install Dependencies:
-
- bash  pip install --upgrade pip  pip install -r requirements.txt 
+```bash
+ pip install --upgrade pip && pip install -r requirements.txt
+ ```
 
 5. Configure the Application:
 
@@ -60,8 +69,9 @@ This project is an NCAA Tournament bracket and picks application that allows use
  The database will be automatically initialized on first run, importing the tournament bracket and Google Sheets picks if available.
 
 7. Run the Application:
-
- bash  python main.py 
+```bash
+python main.py 
+```
 
 8. Access the Web Interface:
 

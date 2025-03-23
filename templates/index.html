@@ -114,7 +114,7 @@
        * @param {number} gameId - Unique ID for the game.
        * @param {string} winnerValue - Selected winner team name.
        */
-      async function updateWinner(gameId, winnerValue) {
+       async function updateWinner(gameId, winnerValue) {
         try {
           let response = await fetch("/update_game", {
             method: "POST",
@@ -122,11 +122,8 @@
             body: JSON.stringify({ game_id: gameId, winner: winnerValue })
           });
           let data = await response.json();
-          if (data.status === "success") {
-            // If a next round is available, redirect the user automatically.
-            if (data.next_round) {
-              window.location.href = window.location.pathname + "?round=" + data.next_round;
-            }
+          if (data.status === "success" && data.refresh === true) {
+            window.location.reload();
           }
         } catch (err) {
           console.error("Error updating winner:", err);
