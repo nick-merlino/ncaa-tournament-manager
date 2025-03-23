@@ -14,7 +14,7 @@ from report import generate_report
 app = Flask(__name__)
 
 TOURNAMENT_BRACKET_JSON = "tournament_bracket.json"
-ROUND_ORDER = ["Round of 64", "Round of 32", "Sweet 16", "Elite Eight", "Final Four", "Championship"]
+ROUND_ORDER = ["Round of 64", "Round of 32", "Sweet 16", "Elite 8", "Final Four", "Championship"]
 first_round_pairings = [(1, 16), (8, 9), (5, 12), (4, 13), (6, 11), (3, 14), (7, 10), (2, 15)]
 
 def get_available_base_rounds():
@@ -50,6 +50,7 @@ def get_default_round():
 
 def create_next_round_games(session, current_results):
     from collections import defaultdict
+    # Group winners by region from current round games.
     region_winners = defaultdict(list)
     for game in current_results:
         if game.winner:
@@ -60,6 +61,7 @@ def create_next_round_games(session, current_results):
     if current_round_index + 1 >= len(ROUND_ORDER):
         return
     next_round_name_base = ROUND_ORDER[current_round_index + 1]
+    # Delete any existing next round games for these regions.
     for region in region_winners.keys():
         existing_next = session.query(TournamentResult).filter(
             TournamentResult.round_name == f"{next_round_name_base} - {region}"
@@ -67,6 +69,9 @@ def create_next_round_games(session, current_results):
         for game in existing_next:
             session.delete(game)
     session.commit()
+    # Get current maximum game_id and assign new game_ids sequentially.
+    max_game = session.query(TournamentResult).order_by(TournamentResult.game_id.desc()).first()
+    next_game_id = max_game.game_id + 1 if max_game else 1
     for region, games in region_winners.items():
         if len(games) % 2 != 0:
             continue
@@ -77,11 +82,14 @@ def create_next_round_games(session, current_results):
                 winner2 = games[i+1].winner
                 if winner1 and winner2:
                     new_game = TournamentResult(
+                        game_id=next_game_id,
                         round_name=f"{next_round_name_base} - {region}",
                         team1=winner1,
-                        team2=winner2
+                        team2=winner2,
+                        winner=None
                     )
                     session.add(new_game)
+                    next_game_id += 1
     session.commit()
 
 def import_bracket_from_json(json_file):

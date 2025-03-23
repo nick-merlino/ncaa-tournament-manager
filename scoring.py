@@ -45,13 +45,22 @@ def calculate_scoring(round_weights=None):
     session = SessionLocal()
     try:
         if round_weights is None:
+            # Keeping this functionality in case I want to use it in the future
+            # round_weights = {
+            #     "Round of 64": 1,
+            #     "Round of 32": 2,
+            #     "Sweet 16": 4,
+            #     "Elite 8": 8,
+            #     "Final Four": 16,
+            #     "Championship": 32
+            # }
             round_weights = {
                 "Round of 64": 1,
-                "Round of 32": 2,
-                "Sweet 16": 4,
-                "Elite 8": 8,
-                "Final Four": 16,
-                "Championship": 32
+                "Round of 32": 1,
+                "Sweet 16": 1,
+                "Elite 8": 1,
+                "Final Four": 1,
+                "Championship": 1
             }
         session.query(UserScore).delete()
         results = session.query(TournamentResult).all()

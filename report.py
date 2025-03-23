@@ -56,6 +56,30 @@ def generate_report(pdf_filename=None):
             if '-' in current_round:
                 current_round = current_round.split('-', 1)[0].strip()
 
+        # Define round_weights (currently unweighted: all wins are 1 point)
+        round_weights = {
+            "Round of 64": 1,
+            "Round of 32": 1,
+            "Sweet 16": 1,
+            "Elite 8": 1,
+            "Final Four": 1,
+            "Championship": 1
+        }
+
+        # Build winners_by_round mapping (if needed later)
+        winners_by_round = {}
+        for round_key, games in round_games.items():
+            base_round = round_key.split('-', 1)[0].strip() if '-' in round_key else round_key.strip()
+            for g in games:
+                if g['winner']:
+                    winners_by_round.setdefault(base_round, set()).add(g['winner'].strip())
+
+        # --- Current Round Section ---
+        story.append(Paragraph(f"Current Round in Progress: {current_round}", styles['Title']))
+        # Centered, small, grey subtitle for team key (no extra space after)
+        story.append(Paragraph('<para align="center"><font size="8" color="grey">Team key: seed(points)-Team Name</font></para>', styles['Normal']))
+        story.append(Spacer(1, 12))
+
         # Sort users descending by points then alphabetically by name.
         if not df.empty:
             user_points_df = (df[['username', 'points']]
@@ -68,24 +92,21 @@ def generate_report(pdf_filename=None):
         else:
             sorted_users = sorted([u.full_name for u in all_users])
 
-        # --- Current Round Section ---
-        story.append(Paragraph(f"Current Round in Progress: {current_round}", styles['Title']))
-        story.append(Spacer(1, 12))
         previous_points = None
         for uname in sorted_users:
             if not df.empty:
                 user_pts = user_points_df.loc[user_points_df['username'] == uname, 'points'].values[0]
             else:
                 user_pts = 0.0
+            # Separator between different score groups if scores differ
             if previous_points is not None and user_pts != previous_points:
                 story.append(HRFlowable(width="100%", thickness=1, color=colors.black))
                 story.append(Spacer(1, 6))
-            # New format: "Name - # points"
-            header_line = f"{uname} - {user_pts:.0f} points"
-            player_flowables = []
-            player_flowables.append(Paragraph(header_line, styles['Heading3']))
+            # Header: show name and bold Points label
+            header_line = f"{uname} - <b>Points:</b> {user_pts:.0f}"
+            player_flowables = [Paragraph(header_line, styles['Heading3'])]
             picks_for_user = df[df['username'] == uname]
-            won_this_round, not_played, out = [], [], []
+            won_list, not_played_list, out_list = [], [], []
             for _, row in picks_for_user.iterrows():
                 team = row['team_name']
                 seed_label = row['seed_label']
@@ -94,24 +115,29 @@ def generate_report(pdf_filename=None):
                 except ValueError:
                     seed_int = 999
                 status = determine_team_status(team, current_round, round_games)
+                # Calculate points for this team for the player:
+                # For each base round, add the round's weight only once if team won any game in that round.
+                team_points = 0
+                for r in ["Round of 64", "Round of 32", "Sweet 16", "Elite 8", "Final Four", "Championship"]:
+                    for round_key, games in round_games.items():
+                        if round_key.startswith(r):
+                            if any(g['winner'] and g['winner'].strip() == team.strip() for g in games):
+                                team_points += round_weights.get(r, 0)
+                                break
+                team_display = f"{seed_int}({team_points}) {team}"
                 if status == 'in':
-                    won_this_round.append((seed_int, team))
+                    won_list.append(team_display)
                 elif status == 'out':
-                    out.append((seed_int, team))
+                    out_list.append(team_display)
                 else:
-                    not_played.append((seed_int, team))
-            won_this_round.sort(key=lambda x: x[0])
-            not_played.sort(key=lambda x: x[0])
-            out.sort(key=lambda x: x[0])
-            def format_line(category, items):
+                    not_played_list.append(team_display)
+            def format_category(category, items):
                 if not items:
                     return f"<b>{category}:</b> None"
-                part_str = " ".join([f"({sd}) {tm}" for (sd, tm) in items])
-                return f"<b>{category}:</b> {part_str}"
-            # New ordering: "Won", then "Not Yet Played", then "Out"
-            player_flowables.append(Paragraph(format_line("Won", won_this_round), styles['Normal']))
-            player_flowables.append(Paragraph(format_line("Not Yet Played", not_played), styles['Normal']))
-            player_flowables.append(Paragraph(format_line("Out", out), styles['Normal']))
+                return f"<b>{category} ({len(items)}):</b> " + ", ".join(items)
+            player_flowables.append(Paragraph(format_category("Won", won_list), styles['Normal']))
+            player_flowables.append(Paragraph(format_category("Not Played Yet", not_played_list), styles['Normal']))
+            player_flowables.append(Paragraph(format_category("Out", out_list), styles['Normal']))
             story.append(KeepTogether(player_flowables))
             story.append(Spacer(1, 12))
             previous_points = user_pts
@@ -119,20 +145,24 @@ def generate_report(pdf_filename=None):
 
         # --- Graphs Section ---
         if not df.empty:
-            # Combine Player Score Graph (Line Chart) and Upset Table on one page.
+            # Group 1: Player Points and Upsets visuals on one page.
+            # Player Points chart:
             user_points_sorted = user_points_df.sort_values(by='points', ascending=False)
             x_vals = list(range(1, len(user_points_sorted) + 1))
             fig_line = go.Figure(
                 data=[go.Scatter(x=x_vals, y=user_points_sorted['points'], mode="lines+markers")],
                 layout=dict(template="plotly_white")
             )
+            # Remove title from the image so it is not baked in.
             fig_line.update_layout(
-                title="Total Points by User",
+                title="",
                 xaxis=dict(title="", showticklabels=False),
                 yaxis_title="Points"
             )
             line_img = fig_to_image(fig_line)
-            # Upset Table
+            player_points_title = Paragraph('<para align="center"><b>Player Points</b></para>', styles['Heading2'])
+            
+            # Upset Table – list all upsets
             with open("tournament_bracket.json", 'r') as f:
                 bracket_info = json.load(f)
             team_seeds = {team['team_name']: team['seed'] for region in bracket_info['regions'] for team in region['teams']}
@@ -156,11 +186,10 @@ def generate_report(pdf_filename=None):
                             'loser': game.team1 if game.winner.strip() == game.team2.strip() else game.team2,
                             'differential': diff
                         })
-            top_upsets = sorted(upsets, key=lambda x: x['differential'], reverse=True)[:10]
             upset_table = None
-            if top_upsets:
+            if upsets:
                 upset_data = [['Round', 'Winner', 'Loser', 'Seed Differential']]
-                for up in top_upsets:
+                for up in sorted(upsets, key=lambda x: x['differential'], reverse=True):
                     upset_data.append([up['round'], up['winner'], up['loser'], up['differential']])
                 upset_table = Table(upset_data)
                 upset_table.setStyle(TableStyle([
@@ -172,19 +201,21 @@ def generate_report(pdf_filename=None):
                     ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
                     ('GRID', (0, 0), (-1, -1), 1, colors.black)
                 ]))
-            combined_graphs = []
+            upset_title = Paragraph('<para align="center"><b>Games with Biggest Upsets</b></para>', styles['Heading2'])
+            
+            group1 = []
+            group1.append(player_points_title)
             if line_img:
-                combined_graphs.append(Image(BytesIO(line_img), width=350, height=250))
+                group1.append(Image(BytesIO(line_img), width=350, height=250))
+            group1.append(upset_title)
             if upset_table:
-                # Add a title above the upset table.
-                combined_graphs.append(Paragraph("Top 10 Biggest Upsets", styles['Heading2']))
-                combined_graphs.append(upset_table)
-            if combined_graphs:
-                story.append(KeepTogether(combined_graphs))
+                group1.append(upset_table)
+            if group1:
+                story.append(KeepTogether(group1))
                 story.append(Spacer(1, 12))
             story.append(PageBreak())
-
-            # Combine "10 Most Popular Teams Still Remaining" and "10 Least Popular Teams Still Remaining" on one page.
+            
+            # Group 2: Most and Least Popular Teams visuals on one page.
             team_counts = df['team_name'].value_counts().reset_index()
             team_counts.columns = ['team_name', 'count']
             first_round_games = session.query(TournamentResult).filter(TournamentResult.round_name.like("Round of 64%")).all()
@@ -203,29 +234,34 @@ def generate_report(pdf_filename=None):
             team_picks = df.groupby('team_name')['username'].nunique().reset_index()
             team_picks.columns = ['team_name', 'pick_count']
             remaining_df = team_picks[team_picks['team_name'].isin(still_remaining)]
-            top10_remaining = remaining_df.sort_values(by='pick_count', ascending=False).head(10)
+            top_remaining = remaining_df.sort_values(by='pick_count', ascending=False)
             fig_top_remaining = go.Figure(
-                data=[go.Bar(x=top10_remaining['team_name'], y=top10_remaining['pick_count'])],
+                data=[go.Bar(x=top_remaining['team_name'], y=top_remaining['pick_count'])],
                 layout=dict(template="plotly_white")
             )
-            fig_top_remaining.update_layout(title="10 Most Popular Teams Still Remaining",
-                                            xaxis_title="", yaxis_title="Number of Picks")
+            # Remove title from the image
+            fig_top_remaining.update_layout(title="", xaxis_title="", yaxis_title="Number of Picks")
             top_remaining_img = fig_to_image(fig_top_remaining)
-            least10_remaining = remaining_df.sort_values(by='pick_count', ascending=True).head(10)
+            top_remaining_title = Paragraph('<para align="center"><b>10 Most Popular Teams Still Remaining</b></para>', styles['Heading2'])
+            
+            least_remaining = remaining_df.sort_values(by='pick_count', ascending=True)
             fig_least_remaining = go.Figure(
-                data=[go.Bar(x=least10_remaining['team_name'], y=least10_remaining['pick_count'])],
+                data=[go.Bar(x=least_remaining['team_name'], y=least_remaining['pick_count'])],
                 layout=dict(template="plotly_white")
             )
-            fig_least_remaining.update_layout(title="10 Least Popular Teams Still Remaining",
-                                              xaxis_title="", yaxis_title="Number of Picks")
+            fig_least_remaining.update_layout(title="", xaxis_title="", yaxis_title="Number of Picks")
             least_remaining_img = fig_to_image(fig_least_remaining)
-            remaining_flowables = []
+            least_remaining_title = Paragraph('<para align="center"><b>10 Least Popular Teams Still Remaining</b></para>', styles['Heading2'])
+            
+            group2 = []
+            group2.append(top_remaining_title)
             if top_remaining_img:
-                remaining_flowables.append(Image(BytesIO(top_remaining_img), width=350, height=250))
+                group2.append(Image(BytesIO(top_remaining_img), width=350, height=250))
+            group2.append(least_remaining_title)
             if least_remaining_img:
-                remaining_flowables.append(Image(BytesIO(least_remaining_img), width=350, height=250))
-            if remaining_flowables:
-                story.append(KeepTogether(remaining_flowables))
+                group2.append(Image(BytesIO(least_remaining_img), width=350, height=250))
+            if group2:
+                story.append(KeepTogether(group2))
                 story.append(Spacer(1, 12))
             story.append(PageBreak())
         doc.build(story)
@@ -245,7 +281,7 @@ def determine_team_status(team, current_round, round_games):
       - If the team is in a game but no winner is selected, return 'not_played'
     If the team does not appear in any current round game, return 'not_played'.
     """
-    ROUND_ORDER = ["Round of 64", "Round of 32", "Sweet 16", "Elite Eight", "Final Four", "Championship"]
+    ROUND_ORDER = ["Round of 64", "Round of 32", "Sweet 16", "Elite 8", "Final Four", "Championship"]
     current_index = ROUND_ORDER.index(current_round)
     # Check previous rounds for elimination.
     for i in range(current_index):
