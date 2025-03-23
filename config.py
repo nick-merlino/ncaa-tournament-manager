@@ -11,14 +11,13 @@ import sys
 # OAuth2 Scopes for reading Google Sheets
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
 
-# Path to your Google OAuth2 client secrets
+# Path to your Google OAuth2 client secrets and token
 GOOGLE_CREDENTIALS_FILE = 'credentials.json'
 TOKEN_FILE = 'token.json'
 
-# ID of the Google Sheet to read picks (participants, seeds, etc.)
-SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "YOUR_SPREADSHEET_ID")
-# Range that includes: timestamp, participant name, email, seed1..seedN
-RANGE_NAME = os.environ.get("RANGE_NAME", "Sheet1!A1:Z")
+# ID and range for the Google Sheet
+SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1NFsleeR7kMSQHwmOhAjxSh9zvUhlbZDOwRQ81r3yc50")
+RANGE_NAME = os.environ.get("RANGE_NAME", "Form Responses 1!A1:Z")
 
 # Database URL (SQLite by default)
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///ncaa_picks.db")

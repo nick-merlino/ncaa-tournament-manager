@@ -1,0 +1,88 @@
+{
+  "regions": [
+    {
+      "region_name": "South",
+      "teams": [
+        { "seed": 1, "team_name": "Auburn" },
+        { "seed": 2, "team_name": "Michigan St" },
+        { "seed": 3, "team_name": "Iowa St" },
+        { "seed": 4, "team_name": "Texas AM" },
+        { "seed": 5, "team_name": "Michigan" },
+        { "seed": 6, "team_name": "Old Miss" },
+        { "seed": 7, "team_name": "Marquette" },
+        { "seed": 8, "team_name": "Louisville" },
+        { "seed": 9, "team_name": "Creighton" },
+        { "seed": 10, "team_name": "New Mexico" },
+        { "seed": 11, "team_name": "San Diego St or North Carolina" },
+        { "seed": 12, "team_name": "UC San Diego" },
+        { "seed": 13, "team_name": "Yale" },
+        { "seed": 14, "team_name": "Lipscomb" },
+        { "seed": 15, "team_name": "Bryant" },
+        { "seed": 16, "team_name": "Alabama St or St Francis" }
+      ]
+    },
+    {
+      "region_name": "East",
+      "teams": [
+        { "seed": 1, "team_name": "Duke" },
+        { "seed": 2, "team_name": "Alabama" },
+        { "seed": 3, "team_name": "Wisconsin" },
+        { "seed": 4, "team_name": "Arizona" },
+        { "seed": 5, "team_name": "Oregon" },
+        { "seed": 6, "team_name": "BYU" },
+        { "seed": 7, "team_name": "St Mary CA" },
+        { "seed": 8, "team_name": "Mississippi" }, 
+        { "seed": 9, "team_name": "Baylor" },
+        { "seed": 10, "team_name": "Vanderbilt" },
+        { "seed": 11, "team_name": "VCU" },
+        { "seed": 12, "team_name": "Liberty" },
+        { "seed": 13, "team_name": "Akron" },
+        { "seed": 14, "team_name": "Montana" },
+        { "seed": 15, "team_name": "Robert Morris" },
+        { "seed": 16, "team_name": "American or Mt St Mary" }
+      ]
+    },
+    {
+      "region_name": "Midwest",
+      "teams": [
+        { "seed": 1, "team_name": "Houston" },
+        { "seed": 2, "team_name": "Tennessee" },
+        { "seed": 3, "team_name": "Kentucky" },
+        { "seed": 4, "team_name": "Purdue" },
+        { "seed": 5, "team_name": "Clemson" },
+        { "seed": 6, "team_name": "Illinois" },
+        { "seed": 7, "team_name": "UCLA" },
+        { "seed": 8, "team_name": "Gonzaga" },
+        { "seed": 9, "team_name": "Georgia" },
+        { "seed": 10, "team_name": "Utah St" },
+        { "seed": 11, "team_name": "Texas or Xavier" },
+        { "seed": 12, "team_name": "McNeese" },
+        { "seed": 13, "team_name": "High Point" },
+        { "seed": 14, "team_name": "Troy" },
+        { "seed": 15, "team_name": "Wofford" },
+        { "seed": 16, "team_name": "SIUE" }
+      ]
+    },
+    {
+      "region_name": "West",
+      "teams": [
+        { "seed": 1, "team_name": "Florida" },
+        { "seed": 2, "team_name": "St Johns" },
+        { "seed": 3, "team_name": "Texas Tech" },
+        { "seed": 4, "team_name": "Maryland" },
+        { "seed": 5, "team_name": "Memphis" },
+        { "seed": 6, "team_name": "Missouri" },
+        { "seed": 7, "team_name": "Kansas" },
+        { "seed": 8, "team_name": "UConn" },
+        { "seed": 9, "team_name": "Oklahoma" },
+        { "seed": 10, "team_name": "Arkansas" },
+        { "seed": 11, "team_name": "Drake" },
+        { "seed": 12, "team_name": "Colorado St" },
+        { "seed": 13, "team_name": "Grand Canyon" },
+        { "seed": 14, "team_name": "UNCW" },
+        { "seed": 15, "team_name": "Omaha" },
+        { "seed": 16, "team_name": "Norfolk" }
+      ]
+    }
+  ]
+}

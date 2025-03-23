@@ -2,88 +2,81 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>NCAA Bracket</title>
-  <!-- Bootstrap 5 from CDN -->
+  <title>NCAA Bracket - {{ selected_round }}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
   <style>
-    .round-container {
-      margin: 1rem 0;
-    }
-    .game-card {
-      border: 1px solid #ccc;
-      border-radius: 0.25rem;
-      margin-bottom: 1rem;
-      padding: 1rem;
-      background-color: #f8f9fa;
-    }
-    .game-header {
-      font-weight: 500;
-      margin-bottom: 0.5rem;
-    }
-    .winner-select {
-      width: auto;
-      margin: 0 1rem;
-    }
+    .region-container { margin-bottom: 2rem; }
+    .round-container { margin-top: 1rem; padding-left: 1rem; border-left: 3px solid #ccc; }
+    .game-card { background-color: #f8f9fa; padding: 1rem; margin-bottom: 1rem; border-radius: 0.25rem; border: 1px solid #ddd; }
+    .game-header { font-weight: 500; margin-bottom: 0.5rem; }
+    .winner-select { width: auto; margin-left: 0.5rem; }
   </style>
 </head>
-
 <body class="bg-light">
-  <div class="container my-4">
-    <h1 class="mb-4">NCAA Bracket Results Configuration</h1>
-
-    <!-- Show Google Sheets error if present -->
-    {% if sheet_error %}
-      <div class="alert alert-danger">
-        <strong>Google Sheets Error:</strong> {{ sheet_error }}
-      </div>
-    {% endif %}
-
-    <p class="text-secondary">
-      Below is the current bracket. Teams may be empty if you haven't linked Google Sheets.<br>
-      You can still pick winners (even if the team name is blank).
-    </p>
-
-    <!-- Display bracket data -->
-    <div class="row">
-      {% for round_name, games in bracket_data.items() %}
-        <div class="col-md-6 round-container">
-          <h3 class="text-primary">{{ round_name }}</h3>
+<div class="container my-4">
+  <h1 class="mb-4">NCAA Bracket - {{ selected_round }}</h1>
+  <p class="text-secondary">You are currently viewing {{ selected_round }}. Selecting a winner auto-saves.</p>
+  <ul class="nav nav-pills mb-3">
+    {% for round in available_base_rounds %}
+      <li class="nav-item">
+        <a class="nav-link {% if round == selected_round %}active{% endif %}" href="?round={{ round }}">{{ round }}</a>
+      </li>
+    {% endfor %}
+  </ul>
+  {% if region_data %}
+    {% for region, games in region_data.items() %}
+      <div class="region-container">
+        <h2 class="text-primary">{{ region }}</h2>
+        <div class="round-container">
+          <h4>{{ selected_round }}</h4>
           {% for game in games %}
             <div class="game-card">
               <div class="game-header">
-                <strong>{{ game.team1 if game.team1 else "No Team" }}</strong>
-                 vs.
-                <strong>{{ game.team2 if game.team2 else "No Team" }}</strong>
+                <strong>{{ game.team1 if game.team1 else "No Team" }}</strong> vs <strong>{{ game.team2 if game.team2 else "No Team" }}</strong>
               </div>
-              <form action="/update_game" method="POST" class="d-flex align-items-center">
-                <input type="hidden" name="game_id" value="{{ game.game_id }}">
-                <label class="me-2">Winner:</label>
-                <select name="winner" class="form-select winner-select">
+              <div>
+                <label>Winner:</label>
+                <select class="form-select d-inline-block winner-select" onchange="updateWinner({{ game.game_id }}, this.value)">
                   <option value="">--Select--</option>
-                  <option value="{{ game.team1 }}"
-                    {% if game.winner == game.team1 %} selected {% endif %}>
+                  <option value="{{ game.team1.strip() if game.team1 else '' }}"
+                    {% if game.winner and game.winner.strip() == game.team1.strip() %} selected {% endif %}>
                     {{ game.team1 if game.team1 else "No Team" }}
                   </option>
-                  <option value="{{ game.team2 }}"
-                    {% if game.winner == game.team2 %} selected {% endif %}>
+                  <option value="{{ game.team2.strip() if game.team2 else '' }}"
+                    {% if game.winner and game.winner.strip() == game.team2.strip() %} selected {% endif %}>
                     {{ game.team2 if game.team2 else "No Team" }}
                   </option>
                 </select>
-                <button type="submit" class="btn btn-success">Save</button>
-              </form>
+              </div>
             </div>
           {% endfor %}
         </div>
-      {% endfor %}
-    </div>
-
-    <hr>
-    <p>
-      <a href="/generate_pdf" class="btn btn-primary">Generate PDF Report</a><br>
-      (This will also attempt to sync picks from Google Sheets)
-    </p>
-  </div>
-
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+      </div>
+    {% endfor %}
+  {% else %}
+    <p>No games available for this round.</p>
+  {% endif %}
+  <hr>
+  <p><a href="/generate_pdf" target="_blank" class="btn btn-primary">Generate PDF Report</a></p>
+  
+</div>
+<script>
+async function updateWinner(gameId, winnerValue) {
+  try {
+    let response = await fetch("/update_game", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ game_id: gameId, winner: winnerValue })
+    });
+    let data = await response.json();
+    if (data.status === "success") {
+      // Optionally reload or update the page; here we do nothing to remain on the same page.
+    }
+  } catch (err) {
+    console.error("Error updating winner:", err);
+  }
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

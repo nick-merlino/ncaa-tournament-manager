@@ -7,7 +7,7 @@ Base = declarative_base()
 
 class User(Base):
     """
-    Represents a single participant (e.g. "Nick Merlino").
+    Represents a single participant.
     """
     __tablename__ = 'users'
     user_id = Column(Integer, primary_key=True, autoincrement=True)
@@ -16,30 +16,29 @@ class User(Base):
 
 class UserPick(Base):
     """
-    Each participant's picks, labeled by seed or another scheme (e.g. "Seed 1").
+    Each participant's picks.
     """
     __tablename__ = 'user_picks'
     pick_id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
-    seed_label = Column(String, nullable=False)  # e.g. "Seed 1"
+    seed_label = Column(String, nullable=False)
     team_name = Column(String, nullable=False)
-
     user = relationship("User", back_populates="picks")
 
 class TournamentResult(Base):
     """
-    Stores the bracket's matchups and winners (to be set via the web interface).
+    Stores the bracket's matchups and winners.
     """
     __tablename__ = 'tournament_results'
     game_id = Column(Integer, primary_key=True)
     round_name = Column(String, nullable=False)
     team1 = Column(String, nullable=False)
     team2 = Column(String, nullable=False)
-    winner = Column(String, nullable=True)  # may be NULL if not decided yet
+    winner = Column(String, nullable=True)
 
 class UserScore(Base):
     """
-    Summed points for each user, updated after we run the scoring routine.
+    Stores the total points for each user.
     """
     __tablename__ = 'user_scores'
     score_id = Column(Integer, primary_key=True, autoincrement=True)
@@ -47,10 +46,18 @@ class UserScore(Base):
     points = Column(Float, default=0.0)
     last_updated = Column(String)
 
-# Setup engine and sessionmaker
 engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(bind=engine)
 
 def init_db():
     """Create tables if they do not exist."""
     Base.metadata.create_all(engine)
+
+def clear_matchup_data():
+    """Clear all matchup data (TournamentResult)."""
+    session = SessionLocal()
+    try:
+        session.query(TournamentResult).delete()
+        session.commit()
+    finally:
+        session.close()
