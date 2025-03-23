@@ -236,117 +236,126 @@ def index():
 @app.route('/update_game', methods=['POST'])
 def update_game():
     """
-    Update the winner for a game. After updating, check globally (across all regions)
-    if every game in the current round has a non-empty winner.
-      - If yes, create (or update) next-round games for every region and set refresh true.
-      - If not, delete all future round games and set refresh false.
+    Update the winner for a game. If the winner is set to a valid team,
+    the game is updated. If the winner is cleared (set to null), then any
+    future round games (which depend on this result) are deleted.
     
-    Returns a JSON with a "refresh" flag so the client can update the view immediately only
-    when all picks for the round are complete.
+    When all games in the current round (across all regions) are complete,
+    next-round games are created (or updated) and the refresh flag is set
+    so that the client reloads the page. Otherwise, if a result is cleared,
+    future rounds are invalidated.
     """
     import json
     data = request.get_json()
     game_id = data.get('game_id')
-    # Normalize winner: trim whitespace or set to None.
+    # Normalize winner: trim whitespace; if empty string, set to None.
     winner = data.get('winner', '').strip() or None
     session = SessionLocal()
     try:
-        # Update the specified game.
         game = session.query(TournamentResult).filter_by(game_id=game_id).first()
         if not game:
             logger.info(f"Game {game_id} not found.")
             return jsonify({"status": "failure", "error": "Game not found"}), 404
-        if winner not in [game.team1.strip(), game.team2.strip()]:
+
+        # Allow clearing the winner (i.e. winner==None)
+        if winner is not None and winner not in [game.team1.strip(), game.team2.strip()]:
             logger.info(f"Invalid winner '{winner}' for game {game_id}: {game.team1} vs {game.team2}")
             return jsonify({"status": "failure", "error": "Invalid winner"}), 400
-        
+
+        # Update the game with the new winner (could be None)
         game.winner = winner
         session.commit()
         logger.info(f"Updated game {game_id}: set winner to '{winner}'")
         
-        # Determine the current base round (e.g. "Round of 64") from the updated game.
+        # Determine the base round (e.g. "Round of 64")
         current_round = game.round_name.split('-', 1)[0].strip()
-        
-        # Query all games in the current round (across all regions).
-        round_games = session.query(TournamentResult).filter(
-            TournamentResult.round_name.like(f"{current_round} -%")
-        ).all()
-        total_games = len(round_games)
-        incomplete_games = [g for g in round_games if not (g.winner and g.winner.strip())]
-        logger.info(f"Round '{current_round}': {total_games} total games, {len(incomplete_games)} incomplete.")
-        for g in incomplete_games:
-            logger.info(f"Game {g.game_id}: {g.team1} vs {g.team2}, current winner: '{g.winner}'")
-        
         current_index = ROUND_ORDER.index(current_round)
-        # Only set refresh = True if all games in the round are complete.
-        refresh = False
+        refresh = False  # Default: do not force a client reload
         
-        if total_games > 0 and not incomplete_games:
-            # All games in the current round are complete.
-            if current_index + 1 < len(ROUND_ORDER):
-                next_round = ROUND_ORDER[current_index + 1]
-                logger.info(f"All games in '{current_round}' complete. Creating/updating '{next_round}' games.")
-                # Load regions from the bracket JSON.
-                with open("tournament_bracket.json") as f:
-                    bracket = json.load(f)
-                regions = [r["region_name"] for r in bracket["regions"]]
-                for region in regions:
-                    # Query the current round games for this region.
-                    region_games = session.query(TournamentResult).filter(
-                        TournamentResult.round_name == f"{current_round} - {region}"
-                    ).order_by(TournamentResult.game_id).all()
-                    if not region_games:
-                        logger.info(f"No games for region '{region}' in round '{current_round}'; skipping.")
-                        continue
-                    winners = [g.winner.strip() for g in sorted(region_games, key=lambda g: g.game_id)]
-                    # Build pairings from winners.
-                    pairings = [(winners[i], winners[i+1]) for i in range(0, len(winners), 2) if i+1 < len(winners)]
-                    logger.info(f"Region '{region}' expected pairings for '{next_round}': {pairings}")
-                    # Check if next-round games exist.
-                    next_games = session.query(TournamentResult).filter(
-                        TournamentResult.round_name == f"{next_round} - {region}"
-                    ).order_by(TournamentResult.game_id).all()
-                    if not next_games:
-                        # Create next-round games.
-                        last_game = session.query(TournamentResult).order_by(TournamentResult.game_id.desc()).first()
-                        new_id = last_game.game_id if last_game else 0
-                        for pairing in pairings:
-                            new_id += 1
-                            new_game = TournamentResult(
-                                game_id=new_id,
-                                round_name=f"{next_round} - {region}",
-                                team1=pairing[0],
-                                team2=pairing[1],
-                                winner=None  # Leave winner empty for manual entry.
-                            )
-                            session.add(new_game)
-                            logger.info(f"Created game {new_id} for {next_round} - {region}: {pairing[0]} vs {pairing[1]}")
-                    else:
-                        # Update existing next-round games.
-                        for idx, pairing in enumerate(pairings):
-                            if idx < len(next_games):
-                                next_game = next_games[idx]
-                                # If the pairing is different OR even if it's the same, clear the winner.
-                                if (next_game.team1.strip() != pairing[0] or next_game.team2.strip() != pairing[1]):
-                                    logger.info(f"Updating game {next_game.game_id} for {next_round} - {region}: was {next_game.team1} vs {next_game.team2}, updating to {pairing[0]} vs {pairing[1]} (resetting winner).")
-                                    next_game.team1 = pairing[0]
-                                    next_game.team2 = pairing[1]
-                                else:
-                                    logger.info(f"Clearing winner for game {next_game.game_id} for {next_round} - {region} (pairing unchanged).")
-                                next_game.winner = None
-                    session.commit()
-                refresh = True  # Only refresh when all games in the round are complete.
-        else:
-            # Not all games in the current round are complete.
-            # Delete all future round games to reflect an incomplete state.
+        # If the winner was cleared (set to None), invalidate future rounds.
+        if winner is None:
+            logger.info(f"Winner cleared for game {game_id}. Invalidating all rounds after '{current_round}'.")
             for r in ROUND_ORDER[current_index+1:]:
                 deleted = session.query(TournamentResult).filter(
                     TournamentResult.round_name.like(f"{r} -%")
                 ).delete(synchronize_session=False)
                 if deleted:
-                    logger.info(f"Deleted {deleted} games from round '{r}' due to incomplete current round.")
+                    logger.info(f"Deleted {deleted} games from round '{r}'.")
             session.commit()
-            refresh = False  # No refresh because round isn't complete.
+            refresh = True  # Invalidate future rounds: refresh view.
+        else:
+            # Winner was set; check if all games in current round (global across regions) are complete.
+            round_games = session.query(TournamentResult).filter(
+                TournamentResult.round_name.like(f"{current_round} -%")
+            ).all()
+            total_games = len(round_games)
+            incomplete_games = [g for g in round_games if not (g.winner and g.winner.strip())]
+            logger.info(f"Round '{current_round}': {total_games} total games, {len(incomplete_games)} incomplete.")
+            for g in incomplete_games:
+                logger.info(f"Game {g.game_id}: {g.team1} vs {g.team2}, current winner: '{g.winner}'")
+            
+            if total_games > 0 and not incomplete_games:
+                # All games in the current round are complete.
+                if current_index + 1 < len(ROUND_ORDER):
+                    next_round = ROUND_ORDER[current_index + 1]
+                    logger.info(f"All games in '{current_round}' complete. Creating/updating '{next_round}' games.")
+                    # Load regions from the bracket JSON.
+                    with open("tournament_bracket.json") as f:
+                        bracket = json.load(f)
+                    regions = [r["region_name"] for r in bracket["regions"]]
+                    for region in regions:
+                        # Query current round games for this region.
+                        region_games = session.query(TournamentResult).filter(
+                            TournamentResult.round_name == f"{current_round} - {region}"
+                        ).order_by(TournamentResult.game_id).all()
+                        if not region_games:
+                            logger.info(f"No games for region '{region}' in round '{current_round}'; skipping.")
+                            continue
+                        winners = [g.winner.strip() for g in sorted(region_games, key=lambda g: g.game_id)]
+                        # Build expected pairings.
+                        pairings = [(winners[i], winners[i+1]) for i in range(0, len(winners), 2) if i+1 < len(winners)]
+                        logger.info(f"Region '{region}' expected pairings for '{next_round}': {pairings}")
+                        # Query any existing next-round games for this region.
+                        next_games = session.query(TournamentResult).filter(
+                            TournamentResult.round_name == f"{next_round} - {region}"
+                        ).order_by(TournamentResult.game_id).all()
+                        if not next_games:
+                            last_game = session.query(TournamentResult).order_by(TournamentResult.game_id.desc()).first()
+                            new_id = last_game.game_id if last_game else 0
+                            for pairing in pairings:
+                                new_id += 1
+                                new_game = TournamentResult(
+                                    game_id=new_id,
+                                    round_name=f"{next_round} - {region}",
+                                    team1=pairing[0],
+                                    team2=pairing[1],
+                                    winner=None  # Start with no winner.
+                                )
+                                session.add(new_game)
+                                logger.info(f"Created game {new_id} for {next_round} - {region}: {pairing[0]} vs {pairing[1]}")
+                        else:
+                            # Update existing next-round games: if pairing has changed, update and clear winner.
+                            for idx, pairing in enumerate(pairings):
+                                if idx < len(next_games):
+                                    next_game = next_games[idx]
+                                    if (next_game.team1.strip() != pairing[0] or next_game.team2.strip() != pairing[1]):
+                                        logger.info(f"Updating game {next_game.game_id} for {next_round} - {region}: was {next_game.team1} vs {next_game.team2}, updating to {pairing[0]} vs {pairing[1]} (resetting winner).")
+                                        next_game.team1 = pairing[0]
+                                        next_game.team2 = pairing[1]
+                                    # Always clear the winner even if the pairing is unchanged.
+                                    next_game.winner = None
+                        session.commit()
+                    refresh = True  # Refresh view because next-round games have been (re)calculated.
+            else:
+                # Not all games in current round are complete; delete any future rounds.
+                for r in ROUND_ORDER[current_index+1:]:
+                    deleted = session.query(TournamentResult).filter(
+                        TournamentResult.round_name.like(f"{r} -%")
+                    ).delete(synchronize_session=False)
+                    if deleted:
+                        logger.info(f"Deleted {deleted} games from round '{r}' due to incomplete current round.")
+                session.commit()
+                refresh = False
         
         return jsonify({"status": "success", "refresh": refresh})
     except Exception as e:
