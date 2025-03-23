@@ -143,7 +143,7 @@ def generate_report(pdf_filename=None):
             previous_points = user_pts
         story.append(PageBreak())
 
-        # --- Graphs Section ---
+        # --- Graphs Section (Existing Visuals) ---
         if not df.empty:
             # Group 1: Player Points and Upsets visuals on one page.
             # Player Points chart:
@@ -213,8 +213,6 @@ def generate_report(pdf_filename=None):
             if group1:
                 story.append(KeepTogether(group1))
                 story.append(Spacer(1, 12))
-            story.append(PageBreak())
-            
             # Group 2: Most and Least Popular Teams visuals on one page.
             team_counts = df['team_name'].value_counts().reset_index()
             team_counts.columns = ['team_name', 'count']
@@ -239,7 +237,6 @@ def generate_report(pdf_filename=None):
                 data=[go.Bar(x=top_remaining['team_name'], y=top_remaining['pick_count'])],
                 layout=dict(template="plotly_white")
             )
-            # Remove title from the image
             fig_top_remaining.update_layout(title="", xaxis_title="", yaxis_title="Number of Picks")
             top_remaining_img = fig_to_image(fig_top_remaining)
             top_remaining_title = Paragraph('<para align="center"><b>10 Most Popular Teams Still Remaining</b></para>', styles['Heading2'])
@@ -263,7 +260,42 @@ def generate_report(pdf_filename=None):
             if group2:
                 story.append(KeepTogether(group2))
                 story.append(Spacer(1, 12))
-            story.append(PageBreak())
+            # --- Additional Visualizations Section (Only Region Breakdown Chart) ---
+            with open("tournament_bracket.json", 'r') as f:
+                bracket_data = json.load(f)
+            region_mapping = {}
+            for region in bracket_data.get("regions", []):
+                region_name = region["region_name"]
+                teams = [team["team_name"] for team in region["teams"]]
+                region_mapping[region_name] = teams
+            region_status = {}
+            for region, teams in region_mapping.items():
+                counts = {"in": 0, "not_played": 0, "out": 0}
+                for team in teams:
+                    status = determine_team_status(team, current_round, round_games)
+                    counts[status] += 1
+                region_status[region] = counts
+            regions = list(region_status.keys())
+            in_counts = [region_status[r]["in"] for r in regions]
+            not_played_counts = [region_status[r]["not_played"] for r in regions]
+            out_counts = [region_status[r]["out"] for r in regions]
+            fig_region = go.Figure(data=[
+                go.Bar(name='In', x=regions, y=in_counts),
+                go.Bar(name='Not Played Yet', x=regions, y=not_played_counts),
+                go.Bar(name='Out', x=regions, y=out_counts)
+            ])
+            fig_region.update_layout(barmode='stack', title="", xaxis_title="Region", yaxis_title="Number of Teams")
+            region_img = fig_to_image(fig_region)
+            region_title = Paragraph('<para align="center"><b>Region Breakdown Chart</b></para>', styles['Heading2'])
+            
+            group_additional = []
+            group_additional.append(region_title)
+            if region_img:
+                group_additional.append(Image(BytesIO(region_img), width=350, height=250))
+            if group_additional:
+                story.append(KeepTogether(group_additional))
+                story.append(Spacer(1, 12))
+            # No extra page break here.
         # Build the PDF and add page numbers.
         doc.build(story, onFirstPage=add_page_number, onLaterPages=add_page_number)
         logger.info(f"PDF report saved as {pdf_filename}")
