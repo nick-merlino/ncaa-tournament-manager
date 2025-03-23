@@ -1,44 +1,78 @@
-# Create virtual environment
-python -m venv venv
+# NCAA Tournament Bracket and Picks Application
 
-# Activate venv
-source venv/bin/activate
+This project is an NCAA Tournament bracket and picks application that allows users to select winners in a bracket through a web interface, tracks user picks and calculates scores based on tournament results, and generates a PDF report summarizing user performance and tournament progress.
 
-# Install requirements
-pip install --upgrade pip
-pip install -r requirements.txt
+## Project Capabilities
 
-# Run the script
-python main.py
+- Web Interface for Matchup Results: Users can select winners for each game in the bracket. The application automatically saves selections, updates the matchups for subsequent rounds, and ensures the correct game ordering.
+- Persistent Tournament Data: Tournament results are stored in a SQLite database so that user selections persist across multiple runs.
+- Scoring and Rankings: User picks are scored based on correct selections across various tournament rounds. Score calculations are updated automatically.
+- PDF Report Generation: A detailed PDF report is generated, which includes:
+ - A current round overview with player picks and scores grouped by score levels.
+ - A modern line chart showing player points.
+ - Bar charts for the 10 most and 10 least popular teams still remaining.
+ - A table of games with the biggest upsets (by seed differential).
+ - A region breakdown chart.
+- Google Sheets Integration: User picks can be imported from a Google Sheet.
 
+## File Structure
 
-TODO
+- index.html: Web interface template for displaying tournament matchups.
+- tournament_bracket.json: JSON file containing the initial tournament bracket (teams and seeds).
+- scoring.py: Contains logic to calculate user scores and determine current round status.
+- report.py: Generates a detailed PDF report with player scores and visualizations.
+- main.py: Main Flask application that handles web routes, game updates, and round progression.
+- google_integration.py: Manages OAuth2 authentication and data retrieval from Google Sheets.
+- db.py: Database models and initialization logic using SQLAlchemy.
+- config.py: Configuration settings for the application (logging, database URL, Google API credentials, etc.).
+- requirements.txt: Lists the Python dependencies required for the project.
+- constants.py: Shared constants such as round order and pairing information for reusability across modules.
 
-Change "Total Points by User" to "Player Points". Instead of listing every player's points as a bar chart, use a modern line chart that displays all user scores in a similar way. 
+## Installation and Run Instructions
 
-Make it so in the PDF report the following are bold
-Points:
-Still In:
-Out:
-Not Played Yet:
+1. Clone the Repository:
 
-Don't say "User: Name" but just say "Name"
+ bash  git clone <repository-url>  cd <repository-directory> 
 
-Make sure that a player's data is on the same page, and not broken up on multiple pages
+2. Create a Virtual Environment:
 
-Put graphs on the same page when possible to reduce the amount of space used
+ bash  python -m venv venv 
 
-Also, add a separator between player groups according to score. For example if 3 players are tied for first they'd be in the first group. Then there would be a horizontal line, followed by the next group who is in second place
+3. Activate the Virtual Environment:
 
-Also add these under the current graphs
-- 10 most popular (according to google sheet picks) teams still remaining
-- 10 least popular (according to google sheet picks) teams still remaining
-- games with biggest upsets (seed differential)
+ - On Linux/Mac:
+ bash  source venv/bin/activate 
+ - On Windows:
+ bash  venv\Scripts\activate 
 
-Give me complete files for any changed files
+4. Install Dependencies:
 
-Also make the web interface where I select the winners per game have the games listed in the right order. For example round 1 from top to bottom is 1vs16, 8vs9, 5vs12, 4vs13, 6vs11, 3vs14, 7vs10, 2vs15. Round 2 is the winner of the first two matchups then follow that trend for the rest of that round and the future rounds
+ bash  pip install --upgrade pip  pip install -r requirements.txt 
 
-Also make sure to save off the values I enter in the matchup results web interface. I want those results to persist across multiple runs.
+5. Configure the Application:
 
-When I entered in all of the round 1 matchup results I expected it to show the round 2 matchups for me to complete, but nothing changed. Fix that. Also the PDF report after I entered all of the round 1 results says there is no round in progress. It should know that it's now round 2 (since round 1 is fully filled out) and figure out which matchups are happening based on the tournament bracket and results. Therefore, it should say it's on the second round and it should calculate the fields such as "not played yet", "still in", "still out", etc accordingly. Also it should update the graphs to reflect that as well.
+ - Update config.py if necessary with your specific configurations.
+ - Ensure tournament_bracket.json contains the correct tournament bracket data.
+ - Provide valid Google API credentials in credentials.json for Google Sheets integration.
+
+6. Initialize the Database and Import Data:
+
+ The database will be automatically initialized on first run, importing the tournament bracket and Google Sheets picks if available.
+
+7. Run the Application:
+
+ bash  python main.py 
+
+8. Access the Web Interface:
+
+ Open your browser and navigate to http://127.0.0.1:5000 to view the tournament bracket and make selections.
+
+## Additional Notes
+
+- Persistent Data: Tournament matchup results are saved in a SQLite database (ncaa_picks.db) and persist between runs.
+- Round Progression: After completing a round's matchups, the application automatically generates the next round's games.
+- PDF Report: Use the "Generate PDF Report" button on the web interface to download a comprehensive report of tournament progress and user scores.
+
+## License
+
+This project is provided for educational and demonstration purposes.

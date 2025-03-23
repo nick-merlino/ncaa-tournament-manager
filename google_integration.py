@@ -1,4 +1,11 @@
-# google_integration.py
+"""
+google_integration.py
+
+Handles Google Sheets integration for the NCAA Picks application.
+Responsible for authenticating with Google using OAuth2,
+fetching picks data from a specified Google Sheets document,
+and updating the local database with those picks.
+"""
 
 import os
 import json
@@ -11,9 +18,21 @@ from config import SCOPES, GOOGLE_CREDENTIALS_FILE, TOKEN_FILE, SPREADSHEET_ID, 
 from db import SessionLocal, User, UserPick
 
 class GoogleSheetsError(Exception):
+    """Custom exception for errors during Google Sheets integration."""
     pass
 
 def google_sheets_authenticate():
+    """
+    Authenticates with Google Sheets using OAuth2.
+    Checks for existing credentials in TOKEN_FILE; if not available or invalid,
+    initiates the OAuth flow.
+
+    Returns:
+        service: Authenticated Google Sheets service instance.
+
+    Raises:
+        GoogleSheetsError: If credentials are missing or authentication fails.
+    """
     if not os.path.exists(GOOGLE_CREDENTIALS_FILE):
         message = f"\n[ERROR] '{GOOGLE_CREDENTIALS_FILE}' not found. Download valid credentials.json from Google Cloud Console."
         logger.error(message)
@@ -25,8 +44,10 @@ def google_sheets_authenticate():
 
     creds = None
     try:
+        # Load credentials from token file if available.
         if os.path.exists(TOKEN_FILE):
             creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+        # If there are no valid credentials available, start the OAuth flow.
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
@@ -34,6 +55,7 @@ def google_sheets_authenticate():
                 flow = InstalledAppFlow.from_client_secrets_file(GOOGLE_CREDENTIALS_FILE, SCOPES)
                 logger.info("Opening browser for Google OAuth2 login...")
                 creds = flow.run_local_server(port=0)
+            # Save the credentials for future use.
             with open(TOKEN_FILE, 'w') as token:
                 token.write(creds.to_json())
     except Exception as e:
@@ -41,7 +63,7 @@ def google_sheets_authenticate():
         logger.error(message)
         raise GoogleSheetsError(message)
     try:
-        # Disable discovery cache to avoid compatibility issues with oauth2client
+        # Build the Google Sheets service.
         service = build('sheets', 'v4', credentials=creds, cache_discovery=False)
         return service
     except Exception as e:
@@ -50,6 +72,21 @@ def google_sheets_authenticate():
         raise GoogleSheetsError(message)
 
 def fetch_picks_from_sheets():
+    """
+    Fetches user picks data from the configured Google Sheets document.
+    
+    Expects the sheet to have a header row with at least 4 columns:
+    [timestamp, participant_full_name, email, seed1, ...].
+    
+    Returns:
+        picks_data (list of dict): Each dict contains:
+            - full_name: Participant's full name.
+            - seed_label: Label for the seed (e.g., "Seed 1").
+            - team_name: Team selected for that seed.
+    
+    Raises:
+        GoogleSheetsError: If fetching data fails or sheet format is unexpected.
+    """
     service = google_sheets_authenticate()
     try:
         sheet = service.spreadsheets()
@@ -59,16 +96,20 @@ def fetch_picks_from_sheets():
         message = f"Error fetching data from Google Sheets (ID={SPREADSHEET_ID}, Range={RANGE_NAME}): {e}"
         logger.error(message)
         raise GoogleSheetsError(message)
+    
     if not values or len(values) < 2:
         message = f"Google Sheet appears empty or missing data (ID: {SPREADSHEET_ID}, Range: {RANGE_NAME})."
         logger.error(message)
         raise GoogleSheetsError(message)
+    
     header = values[0]
     if len(header) < 4:
         message = "Google Sheet header format unexpected. Expected at least: [timestamp, participant_full_name, email, seed1, ...]"
         logger.error(message)
         raise GoogleSheetsError(message)
+    
     picks_data = []
+    # Process each row after the header.
     for idx, row in enumerate(values[1:], start=2):
         if len(row) < 4:
             logger.warning(f"Skipping row {idx}: not enough columns.")
@@ -90,24 +131,37 @@ def fetch_picks_from_sheets():
         message = "No valid picks extracted from the Google Sheet."
         logger.error(message)
         raise GoogleSheetsError(message)
+    
     logger.info(f"Fetched {len(picks_data)} picks from the sheet.")
     return picks_data
 
 def update_local_db_with_picks(picks_data):
+    """
+    Updates the local database with user picks fetched from Google Sheets.
+    
+    For each record:
+      - If the user does not exist, creates a new user.
+      - Updates or creates the corresponding UserPick record.
+    
+    Args:
+        picks_data (list of dict): User picks data from Google Sheets.
+    """
     session = SessionLocal()
     try:
         for record in picks_data:
             full_name = record['full_name']
             seed_label = record['seed_label']
             team_name = record['team_name']
+            # Check if user exists; if not, create a new user.
             user = session.query(User).filter_by(full_name=full_name).first()
             if not user:
                 user = User(full_name=full_name)
                 session.add(user)
                 session.commit()
-            pick_exists = session.query(UserPick).filter_by(user_id=user.user_id, seed_label=seed_label).first()
-            if pick_exists:
-                pick_exists.team_name = team_name
+            # Check if a pick for this seed already exists for the user.
+            pick = session.query(UserPick).filter_by(user_id=user.user_id, seed_label=seed_label).first()
+            if pick:
+                pick.team_name = team_name
             else:
                 new_pick = UserPick(user_id=user.user_id, seed_label=seed_label, team_name=team_name)
                 session.add(new_pick)
