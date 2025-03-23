@@ -305,8 +305,9 @@ def update_game():
                     # Check if next-round games exist.
                     next_games = session.query(TournamentResult).filter(
                         TournamentResult.round_name == f"{next_round} - {region}"
-                    ).all()
+                    ).order_by(TournamentResult.game_id).all()
                     if not next_games:
+                        # Create next-round games.
                         last_game = session.query(TournamentResult).order_by(TournamentResult.game_id.desc()).first()
                         new_id = last_game.game_id if last_game else 0
                         for pairing in pairings:
@@ -321,15 +322,18 @@ def update_game():
                             session.add(new_game)
                             logger.info(f"Created game {new_id} for {next_round} - {region}: {pairing[0]} vs {pairing[1]}")
                     else:
-                        # Update existing next-round games if the pairing has changed.
+                        # Update existing next-round games.
                         for idx, pairing in enumerate(pairings):
                             if idx < len(next_games):
                                 next_game = next_games[idx]
+                                # If the pairing is different OR even if it's the same, clear the winner.
                                 if (next_game.team1.strip() != pairing[0] or next_game.team2.strip() != pairing[1]):
                                     logger.info(f"Updating game {next_game.game_id} for {next_round} - {region}: was {next_game.team1} vs {next_game.team2}, updating to {pairing[0]} vs {pairing[1]} (resetting winner).")
                                     next_game.team1 = pairing[0]
                                     next_game.team2 = pairing[1]
-                                    next_game.winner = None
+                                else:
+                                    logger.info(f"Clearing winner for game {next_game.game_id} for {next_round} - {region} (pairing unchanged).")
+                                next_game.winner = None
                     session.commit()
                 refresh = True  # Only refresh when all games in the round are complete.
         else:
