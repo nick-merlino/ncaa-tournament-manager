@@ -162,7 +162,7 @@ def generate_report(pdf_filename=None):
             line_img = fig_to_image(fig_line)
             player_points_title = Paragraph('<para align="center"><b>Player Points</b></para>', styles['Heading2'])
             
-            # Upset Table – list all upsets
+            # Upset Table – list all upsets and include team seed with team name.
             with open("tournament_bracket.json", 'r') as f:
                 bracket_info = json.load(f)
             team_seeds = {team['team_name']: team['seed'] for region in bracket_info['regions'] for team in region['teams']}
@@ -182,8 +182,8 @@ def generate_report(pdf_filename=None):
                         diff = winner_seed - loser_seed
                         upsets.append({
                             'round': game.round_name,
-                            'winner': game.winner,
-                            'loser': game.team1 if game.winner.strip() == game.team2.strip() else game.team2,
+                            'winner': f"({winner_seed}) {game.winner}",
+                            'loser': f"({loser_seed}) " + (game.team1 if game.winner.strip() == game.team2.strip() else game.team2),
                             'differential': diff
                         })
             upset_table = None
@@ -264,7 +264,8 @@ def generate_report(pdf_filename=None):
                 story.append(KeepTogether(group2))
                 story.append(Spacer(1, 12))
             story.append(PageBreak())
-        doc.build(story)
+        # Build the PDF and add page numbers.
+        doc.build(story, onFirstPage=add_page_number, onLaterPages=add_page_number)
         logger.info(f"PDF report saved as {pdf_filename}")
     except Exception as e:
         logger.error(f"Error generating PDF: {e}")
@@ -317,3 +318,11 @@ def fig_to_image(fig):
     except Exception as e:
         logger.error("Error converting Plotly figure to PNG: %s", e)
         return None
+
+def add_page_number(canvas, doc):
+    """
+    Draws the page number at the bottom center of each page.
+    """
+    page_num = canvas.getPageNumber()
+    text = f"Page {page_num}"
+    canvas.drawCentredString(LETTER[0] / 2.0, 20, text)
