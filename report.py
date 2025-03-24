@@ -159,6 +159,53 @@ def generate_report(pdf_filename=None):
         # ---------------- Visuals Section ----------------
         visuals = []
 
+        # -- 10 Most Popular Teams Still Remaining --
+        team_picks = df.groupby('team_name')['username'].nunique().reset_index()
+        team_picks.columns = ['team_name', 'pick_count']
+        first_round_games = session.query(TournamentResult).filter(TournamentResult.round_name.like("Round of 64%")).all()
+        all_teams = set()
+        for game in first_round_games:
+            all_teams.add(game.team1)
+            all_teams.add(game.team2)
+        decided_games = session.query(TournamentResult).filter(TournamentResult.winner.isnot(None)).all()
+        losers = set()
+        for game in decided_games:
+            if game.winner.strip() == game.team1.strip():
+                losers.add(game.team2)
+            elif game.winner.strip() == game.team2.strip():
+                losers.add(game.team1)
+        still_remaining = all_teams - losers
+        remaining_df = team_picks[team_picks['team_name'].isin(still_remaining)]
+        # Limit to top 10 teams.
+        top_remaining = remaining_df.sort_values(by='pick_count', ascending=False).head(10)
+        fig_top_remaining = go.Figure(
+            data=[go.Bar(x=top_remaining['team_name'], y=top_remaining['pick_count'])],
+            layout=dict(template="plotly_white")
+        )
+        fig_top_remaining.update_layout(title="", xaxis_title="Team", yaxis_title="Number of Picks")
+        top_remaining_img = fig_to_image(fig_top_remaining)
+        top_remaining_title = Paragraph('<para align="center"><b>10 Most Popular Teams Still Remaining</b></para>', styles['Heading2'])
+        popular_group = [top_remaining_title]
+        if top_remaining_img:
+            popular_group.append(Image(BytesIO(top_remaining_img), width=400, height=300))
+        visuals.append(KeepTogether(popular_group))
+        visuals.append(Spacer(1, 12))
+
+        # -- 10 Least Popular Teams Still Remaining --
+        least_remaining = remaining_df.sort_values(by='pick_count', ascending=True).head(10)
+        fig_least_remaining = go.Figure(
+            data=[go.Bar(x=least_remaining['team_name'], y=least_remaining['pick_count'])],
+            layout=dict(template="plotly_white")
+        )
+        fig_least_remaining.update_layout(title="", xaxis_title="Team", yaxis_title="Number of Picks")
+        least_remaining_img = fig_to_image(fig_least_remaining)
+        least_remaining_title = Paragraph('<para align="center"><b>10 Least Popular Teams Still Remaining</b></para>', styles['Heading2'])
+        least_group = [least_remaining_title]
+        if least_remaining_img:
+            least_group.append(Image(BytesIO(least_remaining_img), width=400, height=300))
+        visuals.append(KeepTogether(least_group))
+        visuals.append(Spacer(1, 12))
+
         # -- Player Points Line Chart --
         if not df.empty:
             # Use player names as x-axis labels.
@@ -233,55 +280,6 @@ def generate_report(pdf_filename=None):
             upset_group.append(upset_table)
         visuals.append(KeepTogether(upset_group))
         visuals.append(Spacer(1, 12))
-
-        # -- 10 Most Popular Teams Still Remaining --
-        team_picks = df.groupby('team_name')['username'].nunique().reset_index()
-        team_picks.columns = ['team_name', 'pick_count']
-        first_round_games = session.query(TournamentResult).filter(TournamentResult.round_name.like("Round of 64%")).all()
-        all_teams = set()
-        for game in first_round_games:
-            all_teams.add(game.team1)
-            all_teams.add(game.team2)
-        decided_games = session.query(TournamentResult).filter(TournamentResult.winner.isnot(None)).all()
-        losers = set()
-        for game in decided_games:
-            if game.winner.strip() == game.team1.strip():
-                losers.add(game.team2)
-            elif game.winner.strip() == game.team2.strip():
-                losers.add(game.team1)
-        still_remaining = all_teams - losers
-        remaining_df = team_picks[team_picks['team_name'].isin(still_remaining)]
-        # Limit to top 10 teams.
-        top_remaining = remaining_df.sort_values(by='pick_count', ascending=False).head(10)
-        fig_top_remaining = go.Figure(
-            data=[go.Bar(x=top_remaining['team_name'], y=top_remaining['pick_count'])],
-            layout=dict(template="plotly_white")
-        )
-        fig_top_remaining.update_layout(title="", xaxis_title="Team", yaxis_title="Number of Picks")
-        top_remaining_img = fig_to_image(fig_top_remaining)
-        top_remaining_title = Paragraph('<para align="center"><b>10 Most Popular Teams Still Remaining</b></para>', styles['Heading2'])
-        popular_group = [top_remaining_title]
-        if top_remaining_img:
-            popular_group.append(Image(BytesIO(top_remaining_img), width=400, height=300))
-        visuals.append(KeepTogether(popular_group))
-        visuals.append(Spacer(1, 12))
-
-        # -- 10 Least Popular Teams Still Remaining --
-        least_remaining = remaining_df.sort_values(by='pick_count', ascending=True).head(10)
-        fig_least_remaining = go.Figure(
-            data=[go.Bar(x=least_remaining['team_name'], y=least_remaining['pick_count'])],
-            layout=dict(template="plotly_white")
-        )
-        fig_least_remaining.update_layout(title="", xaxis_title="Team", yaxis_title="Number of Picks")
-        least_remaining_img = fig_to_image(fig_least_remaining)
-        least_remaining_title = Paragraph('<para align="center"><b>10 Least Popular Teams Still Remaining</b></para>', styles['Heading2'])
-        least_group = [least_remaining_title]
-        if least_remaining_img:
-            least_group.append(Image(BytesIO(least_remaining_img), width=400, height=300))
-        visuals.append(KeepTogether(least_group))
-        visuals.append(Spacer(1, 12))
-
-        # Note: Region Breakdown Chart has been removed per request.
 
         # Add all visual groups to the story.
         for group in visuals:
