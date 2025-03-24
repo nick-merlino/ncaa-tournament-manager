@@ -6,11 +6,11 @@
     <!-- Import Bootstrap CSS for styling -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <style>
-      /* Container for each region's matchup data */
-      .region-container {
+      /* Container for each group’s matchup data (region or game label) */
+      .group-container {
         margin-bottom: 2rem;
       }
-      /* Container for each round within a region */
+      /* Container for each round within a group */
       .round-container {
         margin-top: 1rem;
         padding-left: 1rem;
@@ -52,15 +52,10 @@
         {% endfor %}
       </ul>
 
-      <!-- 
-        The backend sends a 'region_data' dictionary, where each key is a region name and the value is 
-        a list of game objects (with properties such as game_id, team1, team2, winner). 
-        The games are already sorted in the proper order (e.g. 1 vs 16, 8 vs 9, etc.) as defined by the tournament bracket.
-      -->
       {% if region_data %}
-        {% for region, games in region_data.items() %}
-          <div class="region-container">
-            <h2 class="text-primary">{{ region }}</h2>
+        {% for group, games in region_data.items() %}
+          <div class="group-container">
+            <h2 class="text-primary">{{ group }}</h2>
             <div class="round-container">
               <h4>{{ selected_round }}</h4>
               {% for game in games %}
@@ -77,8 +72,8 @@
                       The select dropdown automatically saves the user's winner selection.
                       The onchange event triggers the updateWinner() function defined below.
                     -->
-                    <select class="form-select d-inline-block winner-select" onchange="updateWinner({{ game.game_id }}, this.value)">
-                      <option value="">--Select--</option>
+                    <select class="form-select d-inline-block winner-select" onchange="updateWinner({{ game.game_id }}, this.value)" autocomplete="off">
+                      <option value="" {% if not game.winner or game.winner|trim == '' %}selected{% endif %}>--Select--</option>
                       <option value="{{ game.team1.strip() if game.team1 else '' }}"
                         {% if game.winner and game.winner.strip() == game.team1.strip() %} selected {% endif %}>
                         {{ game.team1 if game.team1 else "No Team" }}
@@ -109,12 +104,12 @@
     <script>
       /**
        * Sends an asynchronous request to update the winner for a given game.
-       * If the current round is completed, it redirects to the next round.
+       * If the current round's global completeness changes, it refreshes the UI.
        *
        * @param {number} gameId - Unique ID for the game.
        * @param {string} winnerValue - Selected winner team name.
        */
-       async function updateWinner(gameId, winnerValue) {
+      async function updateWinner(gameId, winnerValue) {
         try {
           let response = await fetch("/update_game", {
             method: "POST",
