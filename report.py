@@ -96,8 +96,7 @@ def generate_report(pdf_filename=None):
             sorted_users = sorted([u.full_name for u in all_users])
 
         previous_points = None
-        # Note: pass the full visible_rounds dictionary so that determine_team_status
-        # can examine previous rounds as well.
+        # Process each user's picks
         for uname in sorted_users:
             if not df.empty:
                 user_pts = user_points_df.loc[user_points_df['username'] == uname, 'points'].values[0]
@@ -109,8 +108,10 @@ def generate_report(pdf_filename=None):
             header_line = f"{uname} - <b>Points:</b> {user_pts:.0f}"
             player_flowables = [Paragraph(header_line, styles['Heading3'])]
             
-            # Categorize team picks by status.
-            still_in_list, not_played_list, out_list = [], [], []
+            # Collect picks as tuples (seed_int, team_display)
+            still_in_picks = []
+            not_played_picks = []
+            out_picks = []
             for _, row in df[df['username'] == uname].iterrows():
                 team = row['team_name']
                 seed_label = row['seed_label']
@@ -118,7 +119,6 @@ def generate_report(pdf_filename=None):
                     seed_int = int(seed_label.replace("Seed", "").strip())
                 except ValueError:
                     seed_int = 999
-                # Use the full visible_rounds dictionary here.
                 status = determine_team_status(team, current_round, visible_rounds)
                 # Calculate team points based on wins in each round (only add once per round).
                 team_points = 0
@@ -130,11 +130,16 @@ def generate_report(pdf_filename=None):
                                 break
                 team_display = f"{seed_int}({team_points}) {team}"
                 if status == 'in':
-                    still_in_list.append(team_display)
+                    still_in_picks.append((seed_int, team_display))
                 elif status == 'out':
-                    out_list.append(team_display)
+                    out_picks.append((seed_int, team_display))
                 else:
-                    not_played_list.append(team_display)
+                    not_played_picks.append((seed_int, team_display))
+            
+            # Sort each list numerically by the seed value
+            still_in_list = [display for seed, display in sorted(still_in_picks, key=lambda x: x[0])]
+            not_played_list = [display for seed, display in sorted(not_played_picks, key=lambda x: x[0])]
+            out_list = [display for seed, display in sorted(out_picks, key=lambda x: x[0])]
             
             def format_category(category, items):
                 if not items:
