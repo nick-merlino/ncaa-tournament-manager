@@ -181,7 +181,6 @@ def update_dependent_for_pairing(session, region, base_round, pairing_index):
         # Recurse for the next round.
         update_dependent_for_pairing(session, region, next_round, pairing_index)
 
-
 def update_dependent_games_for_round(session, base_round):
     """
     For a given base_round (region-based), update dependent games for each region.
@@ -228,6 +227,121 @@ def update_dependent_games_for_round(session, base_round):
                     winner=None
                 )
                 session.add(new_game)
+    session.commit()
+
+def update_final_four(session):
+    """
+    Update the Final Four round based on Elite 8 winners.
+    This function gathers the Elite 8 winners from all four regions (in the order provided
+    by tournament_bracket.json) and pairs the first two winners as "Game 1" and the last two as "Game 2".
+    It updates or creates Final Four games accordingly.
+    """
+    import json
+    with open("tournament_bracket.json", "r") as f:
+        data = json.load(f)
+    regions = [r["region_name"] for r in data.get("regions", [])]
+    # Retrieve winners from each region's Elite 8 game.
+    elite8_winners = []
+    for region in regions:
+        game = session.query(TournamentResult).filter(
+            TournamentResult.round_name == f"Elite 8 - {region}"
+        ).order_by(TournamentResult.game_id).first()
+        if game and game.winner and game.winner.strip():
+            elite8_winners.append(game.winner.strip())
+        else:
+            elite8_winners.append(None)
+    # Only update Final Four if all Elite 8 games are complete.
+    if not all(elite8_winners):
+        # Clear any existing Final Four games if Elite 8 is incomplete.
+        final_four_games = session.query(TournamentResult).filter(
+            TournamentResult.round_name.like("Final Four -%")
+        ).all()
+        for g in final_four_games:
+            g.winner = None
+        session.commit()
+        return
+
+    # Pair the winners: first two form Game 1, last two form Game 2.
+    game1_pair = (elite8_winners[0], elite8_winners[1])
+    game2_pair = (elite8_winners[2], elite8_winners[3])
+
+    # Update or create Final Four - Game 1.
+    ff_game1 = session.query(TournamentResult).filter_by(round_name="Final Four - Game 1").first()
+    if ff_game1:
+        if (ff_game1.team1.strip() != game1_pair[0] or
+            ff_game1.team2.strip() != game1_pair[1]):
+            ff_game1.team1 = game1_pair[0]
+            ff_game1.team2 = game1_pair[1]
+        ff_game1.winner = None
+    else:
+        last_game = session.query(TournamentResult).order_by(TournamentResult.game_id.desc()).first()
+        new_id = last_game.game_id + 1 if last_game else 1
+        ff_game1 = TournamentResult(
+            game_id=new_id,
+            round_name="Final Four - Game 1",
+            team1=game1_pair[0],
+            team2=game1_pair[1],
+            winner=None
+        )
+        session.add(ff_game1)
+    # Update or create Final Four - Game 2.
+    ff_game2 = session.query(TournamentResult).filter_by(round_name="Final Four - Game 2").first()
+    if ff_game2:
+        if (ff_game2.team1.strip() != game2_pair[0] or
+            ff_game2.team2.strip() != game2_pair[1]):
+            ff_game2.team1 = game2_pair[0]
+            ff_game2.team2 = game2_pair[1]
+        ff_game2.winner = None
+    else:
+        last_game = session.query(TournamentResult).order_by(TournamentResult.game_id.desc()).first()
+        new_id = last_game.game_id + 1 if last_game else 1
+        ff_game2 = TournamentResult(
+            game_id=new_id,
+            round_name="Final Four - Game 2",
+            team1=game2_pair[0],
+            team2=game2_pair[1],
+            winner=None
+        )
+        session.add(ff_game2)
+    session.commit()
+
+def update_championship(session):
+    """
+    Update the Championship round based on Final Four winners.
+    This function checks that both Final Four games ("Game 1" and "Game 2") are complete and then
+    creates or updates the Championship game with the winners from these games.
+    """
+    # Retrieve the two Final Four games.
+    ff_games = session.query(TournamentResult).filter(
+        TournamentResult.round_name.like("Final Four -%")
+    ).order_by(TournamentResult.game_id).all()
+    # Only update Championship if both Final Four games are complete.
+    if not (len(ff_games) == 2 and all(g.winner and g.winner.strip() for g in ff_games)):
+        champ = session.query(TournamentResult).filter_by(round_name="Championship").first()
+        if champ:
+            champ.winner = None
+            session.commit()
+        return
+    # Gather winners from Final Four.
+    ff_winners = [g.winner.strip() for g in ff_games]
+    # Update or create the Championship game.
+    champ = session.query(TournamentResult).filter_by(round_name="Championship").first()
+    if champ:
+        if champ.team1.strip() != ff_winners[0] or champ.team2.strip() != ff_winners[1]:
+            champ.team1 = ff_winners[0]
+            champ.team2 = ff_winners[1]
+        champ.winner = None
+    else:
+        last_game = session.query(TournamentResult).order_by(TournamentResult.game_id.desc()).first()
+        new_id = last_game.game_id + 1 if last_game else 1
+        champ = TournamentResult(
+            game_id=new_id,
+            round_name="Championship",
+            team1=ff_winners[0],
+            team2=ff_winners[1],
+            winner=None
+        )
+        session.add(champ)
     session.commit()
 
 @app.route('/')
@@ -298,12 +412,11 @@ def index():
     finally:
         session.close()
 
-
 @app.route('/update_game', methods=['POST'])
 def update_game():
     """
     Update a game result.
-    
+
     When a game result is updated or cleared, only the dependent next-round game for that pairing
     is recalculated/cleared. This effect ripples recursively. However, if the change causes the
     global completeness of the round to change from complete to incomplete, later rounds remain intact
@@ -323,15 +436,15 @@ def update_game():
             logger.info(f"Invalid winner '{new_winner}' for game {game_id}: {game.team1} vs {game.team2}")
             return jsonify({"status": "failure", "error": "Invalid winner"}), 400
 
-        # Extract base round and region (or game label).
+        # Extract base round and region (or game label)
         if '-' in game.round_name:
-            base_round = game.round_name.split('-', 1)[0].strip()  # e.g., "Round of 64"
-            region = game.round_name.split('-', 1)[1].strip()       # e.g., "South"
+            base_round = game.round_name.split('-', 1)[0].strip()  # e.g., "Round of 64", "Elite 8", etc.
+            detail = game.round_name.split('-', 1)[1].strip()       # e.g., "South" for region rounds
         else:
             base_round = game.round_name.strip()
-            region = None
+            detail = None
 
-        # Check the global completeness of the current round before update.
+        # Check global completeness of the current round BEFORE update.
         current_round_pattern = f"{base_round} -%"
         current_games_before = session.query(TournamentResult).filter(
             TournamentResult.round_name.like(current_round_pattern)
@@ -343,9 +456,10 @@ def update_game():
         session.commit()
         logger.info(f"Updated game {game_id}: set winner to '{new_winner}'")
 
-        # (2) Process the dependent next-round game only for the specific pairing.
-        if base_round in ["Round of 64", "Round of 32", "Sweet 16", "Elite 8"]:
-            # Retrieve games for the current region and determine pairing index.
+        # (2) Process the dependent next-round game based on the round type.
+        if base_round in ["Round of 64", "Round of 32", "Sweet 16"]:
+            # For these rounds, update the dependent game for the specific pairing.
+            region = detail
             region_games = session.query(TournamentResult).filter(
                 TournamentResult.round_name == f"{base_round} - {region}"
             ).order_by(TournamentResult.game_id).all()
@@ -357,54 +471,38 @@ def update_game():
                 return jsonify({"status": "failure", "error": "Game not in expected region"}), 500
             pairing_index = game_index // 2
 
-            # Check new global completeness after the update.
-            current_games_after = session.query(TournamentResult).filter(
-                TournamentResult.round_name.like(current_round_pattern)
-            ).all()
-            new_global_complete = all(g.winner and g.winner.strip() for g in current_games_after)
+            update_dependent_for_pairing(session, region, base_round, pairing_index)
 
-            # If the current round remains globally complete, update dependent game for this pairing.
-            if new_global_complete:
-                update_dependent_for_pairing(session, region, base_round, pairing_index)
+        elif base_round == "Elite 8":
+            # For Elite 8, if the round is globally complete, run interregional logic to update Final Four.
+            elite8_games = session.query(TournamentResult).filter(
+                TournamentResult.round_name.like("Elite 8 -%")
+            ).all()
+            if all(g.winner and g.winner.strip() for g in elite8_games):
+                update_final_four(session)
             else:
-                # If the global state changes from complete to incomplete, do not update later rounds.
-                logger.info("Global state changed: round is now incomplete; dependent rounds will be hidden.")
+                logger.info("Global state changed: Elite 8 is now incomplete; Final Four will be hidden.")
+
         elif base_round == "Final Four":
-            # (Final Four interregional logic remains unchanged.)
-            next_round = "Championship"
+            # For Final Four, update Championship.
             final_four_games = session.query(TournamentResult).filter(
                 TournamentResult.round_name.like("Final Four -%")
-            ).order_by(TournamentResult.game_id).all()
-            all_final_four_complete = (len(final_four_games) == 2 and
-                                       all(g.winner and g.winner.strip() for g in final_four_games))
-            championship_game = session.query(TournamentResult).filter_by(round_name="Championship").first()
-            if not all_final_four_complete:
-                if championship_game:
-                    logger.info("Clearing Championship game since Final Four is incomplete.")
-                    championship_game.winner = None
+            ).all()
+            if all(g.winner and g.winner.strip() for g in final_four_games):
+                update_championship(session)
             else:
-                expected_pairing = (final_four_games[0].winner.strip(), final_four_games[1].winner.strip())
+                championship_game = session.query(TournamentResult).filter_by(round_name="Championship").first()
                 if championship_game:
-                    if (championship_game.team1.strip() != expected_pairing[0] or
-                        championship_game.team2.strip() != expected_pairing[1]):
-                        logger.info(f"Updating Championship game {championship_game.game_id} teams to {expected_pairing} and clearing winner.")
-                        championship_game.team1 = expected_pairing[0]
-                        championship_game.team2 = expected_pairing[1]
                     championship_game.winner = None
-                else:
-                    last_game = session.query(TournamentResult).order_by(TournamentResult.game_id.desc()).first()
-                    new_id = last_game.game_id + 1 if last_game else 1
-                    new_game = TournamentResult(
-                        game_id=new_id,
-                        round_name="Championship",
-                        team1=expected_pairing[0],
-                        team2=expected_pairing[1],
-                        winner=None
-                    )
-                    session.add(new_game)
-            session.commit()
+                    session.commit()
 
-        # (3) Determine refresh flag: only if the global completeness state of the current round changed.
+        # (3) Recompute new_global_complete for the current round unconditionally.
+        current_games_after = session.query(TournamentResult).filter(
+            TournamentResult.round_name.like(current_round_pattern)
+        ).all()
+        new_global_complete = all(g.winner and g.winner.strip() for g in current_games_after)
+
+        # (4) Determine refresh flag: only if the global completeness state of the current round changed.
         refresh = False
         if old_global_complete != new_global_complete:
             refresh = True
