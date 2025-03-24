@@ -172,7 +172,7 @@ def generate_report(pdf_filename=None):
         # Now, determine teams still in the tournament.
         # For a team to still be in, it must have won in every complete visible round.
         # 'visible_rounds' is obtained earlier via get_round_game_status().
-        from constants import ROUND_ORDER
+
         remaining = set(bracket_teams)
         for round_name in ROUND_ORDER:
             if round_name in visible_rounds:
