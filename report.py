@@ -179,7 +179,7 @@ def generate_report(pdf_filename=None):
         player_points_title = Paragraph('<para align="center"><b>Player Points</b></para>', styles['Heading2'])
         pp_group = [player_points_title]
         if line_img:
-            pp_group.append(Image(BytesIO(line_img), width=400, height=300))
+            pp_group.append(Image(BytesIO(line_img), width=500, height=300))
         visuals.append(KeepTogether(pp_group))
         visuals.append(Spacer(1, 12))
 
