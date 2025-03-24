@@ -16,18 +16,26 @@ from constants import ROUND_ORDER, ROUND_WEIGHTS
 
 def calculate_scoring():
     """
-    Calculates and updates user scores based on tournament results.
+    Calculates and updates user scores based on tournament results,
+    considering only the visible rounds.
     Each round win contributes points based on ROUND_WEIGHTS.
     """
     session = SessionLocal()
     try:
         session.query(UserScore).delete()
         results = session.query(TournamentResult).all()
+        # Only consider rounds that are visible
+        _, visible_rounds = get_round_game_status()
+        visible_round_keys = set(visible_rounds.keys())
+        
         winners_by_round = {}
         for result in results:
             if result.winner:
                 base_round = result.round_name.split('-', 1)[0].strip()
-                winners_by_round.setdefault(base_round, set()).add(result.winner.strip())
+                # Only add wins from rounds that are visible
+                if base_round in visible_round_keys:
+                    winners_by_round.setdefault(base_round, set()).add(result.winner.strip())
+        
         users = session.query(User).all()
         for user in users:
             total_points = 0.0
@@ -47,6 +55,7 @@ def calculate_scoring():
         session.rollback()
     finally:
         session.close()
+
 
 def get_round_game_status():
     """
