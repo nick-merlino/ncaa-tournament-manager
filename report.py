@@ -160,24 +160,52 @@ def generate_report(pdf_filename=None):
         visuals = []
 
         # -- 10 Most Popular Teams Still Remaining --
-        team_picks = df.groupby('team_name')['username'].nunique().reset_index()
-        team_picks.columns = ['team_name', 'pick_count']
-        first_round_games = session.query(TournamentResult).filter(TournamentResult.round_name.like("Round of 64%")).all()
-        all_teams = set()
+        # First, get all teams from the Round of 64 (the full bracket)
+        first_round_games = session.query(TournamentResult).filter(
+            TournamentResult.round_name.like("Round of 64%")
+        ).all()
+        bracket_teams = set()
         for game in first_round_games:
-            all_teams.add(game.team1)
-            all_teams.add(game.team2)
-        decided_games = session.query(TournamentResult).filter(TournamentResult.winner.isnot(None)).all()
-        losers = set()
-        for game in decided_games:
-            if game.winner.strip() == game.team1.strip():
-                losers.add(game.team2)
-            elif game.winner.strip() == game.team2.strip():
-                losers.add(game.team1)
-        still_remaining = all_teams - losers
-        remaining_df = team_picks[team_picks['team_name'].isin(still_remaining)]
-        # Limit to top 10 teams.
-        top_remaining = remaining_df.sort_values(by='pick_count', ascending=False).head(10)
+            bracket_teams.add(game.team1.strip())
+            bracket_teams.add(game.team2.strip())
+
+        # Now, determine teams still in the tournament.
+        # For a team to still be in, it must have won in every complete visible round.
+        # 'visible_rounds' is obtained earlier via get_round_game_status().
+        from constants import ROUND_ORDER
+        remaining = set(bracket_teams)
+        for round_name in ROUND_ORDER:
+            if round_name in visible_rounds:
+                games = visible_rounds[round_name]
+                # Process the round only if every game is complete.
+                if all(g.get('winner') and g['winner'].strip() for g in games):
+                    for g in games:
+                        # Identify the losing team.
+                        if g['winner'].strip() == g['team1'].strip():
+                            loser = g['team2'].strip()
+                        else:
+                            loser = g['team1'].strip()
+                        remaining.discard(loser)
+                else:
+                    # Stop processing if this round isn't fully complete.
+                    break
+
+        # Create a DataFrame for all teams with their pick counts.
+        teams_df = pd.DataFrame({'team_name': list(bracket_teams)})
+        pick_counts = df.groupby('team_name')['username'].nunique().reset_index().rename(
+            columns={'username': 'pick_count'}
+        )
+        teams_df = teams_df.merge(pick_counts, on='team_name', how='left')
+        teams_df['pick_count'] = teams_df['pick_count'].fillna(0).astype(int)
+
+        # Filter to teams that are still remaining per the elimination logic.
+        remaining_df = teams_df[teams_df['team_name'].isin(remaining)]
+
+        # Top 10 most popular remaining teams (sorted descending by pick_count and alphabetically).
+        top_remaining = remaining_df.sort_values(
+            by=['pick_count', 'team_name'], ascending=[False, True]
+        ).head(10)
+
         fig_top_remaining = go.Figure(
             data=[go.Bar(x=top_remaining['team_name'], y=top_remaining['pick_count'])],
             layout=dict(template="plotly_white")
@@ -192,7 +220,9 @@ def generate_report(pdf_filename=None):
         visuals.append(Spacer(1, 12))
 
         # -- 10 Least Popular Teams Still Remaining --
-        least_remaining = remaining_df.sort_values(by='pick_count', ascending=True).head(10)
+        least_remaining = remaining_df.sort_values(
+            by=['pick_count', 'team_name'], ascending=[True, True]
+        ).head(10)
         fig_least_remaining = go.Figure(
             data=[go.Bar(x=least_remaining['team_name'], y=least_remaining['pick_count'])],
             layout=dict(template="plotly_white")
