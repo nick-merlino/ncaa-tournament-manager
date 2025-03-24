@@ -114,6 +114,7 @@ def get_default_round():
         return list(visible_rounds.keys())[0]
     return ROUND_ORDER[0]
 
+
 def update_dependent_for_pairing(session, region, base_round, pairing_index):
     """
     Recursively update the dependent game for a given pairing in a region.
@@ -181,53 +182,6 @@ def update_dependent_for_pairing(session, region, base_round, pairing_index):
         # Recurse for the next round.
         update_dependent_for_pairing(session, region, next_round, pairing_index)
 
-def update_dependent_games_for_round(session, base_round):
-    """
-    For a given base_round (region-based), update dependent games for each region.
-    Reads regions from tournament_bracket.json and, for each region,
-    creates or updates the dependent game (in the next round) for every pairing that is complete.
-    """
-    import json
-    with open(TOURNAMENT_BRACKET_JSON, 'r') as f:
-        data = json.load(f)
-    regions = [r["region_name"] for r in data.get("regions", [])]
-    current_index = ROUND_ORDER.index(base_round)
-    next_round = ROUND_ORDER[current_index + 1] if current_index + 1 < len(ROUND_ORDER) else None
-    if not next_round:
-        return
-    for region in regions:
-        current_round_name = f"{base_round} - {region}"
-        next_round_name = f"{next_round} - {region}"
-        region_games = session.query(TournamentResult).filter(
-            TournamentResult.round_name == current_round_name
-        ).order_by(TournamentResult.game_id).all()
-        for pairing_index in range(0, len(region_games) // 2):
-            pairing_games = region_games[pairing_index*2 : pairing_index*2 + 2]
-            if len(pairing_games) < 2 or not all(g.winner and g.winner.strip() for g in pairing_games):
-                continue
-            expected_pairing = (pairing_games[0].winner.strip(), pairing_games[1].winner.strip())
-            next_region_games = session.query(TournamentResult).filter(
-                TournamentResult.round_name == next_round_name
-            ).order_by(TournamentResult.game_id).all()
-            if pairing_index < len(next_region_games):
-                dep_game = next_region_games[pairing_index]
-                if (dep_game.team1.strip() != expected_pairing[0] or
-                    dep_game.team2.strip() != expected_pairing[1]):
-                    dep_game.team1 = expected_pairing[0]
-                    dep_game.team2 = expected_pairing[1]
-                dep_game.winner = None
-            else:
-                last_game = session.query(TournamentResult).order_by(TournamentResult.game_id.desc()).first()
-                new_id = last_game.game_id + 1 if last_game else 1
-                new_game = TournamentResult(
-                    game_id=new_id,
-                    round_name=next_round_name,
-                    team1=expected_pairing[0],
-                    team2=expected_pairing[1],
-                    winner=None
-                )
-                session.add(new_game)
-    session.commit()
 
 def update_final_four(session):
     """
@@ -305,6 +259,7 @@ def update_final_four(session):
         session.add(ff_game2)
     session.commit()
 
+
 def update_championship(session):
     """
     Update the Championship round based on Final Four winners.
@@ -343,6 +298,26 @@ def update_championship(session):
         )
         session.add(champ)
     session.commit()
+
+
+# --------------------------------------------------------------
+# PDF Generation Route (restored)
+# --------------------------------------------------------------
+@app.route('/generate_pdf')
+def generate_pdf_route():
+    """
+    Route to trigger PDF report generation.
+    Calculates user scores, generates a PDF report, and then redirects the user
+    to the generated PDF file.
+    """
+    import datetime
+    calculate_scoring()
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    pdf_filename = f"NCAA_Report_{timestamp}.pdf"
+    pdf_path = os.path.join(app.static_folder, pdf_filename)
+    generate_report(pdf_path)
+    return redirect(url_for('static', filename=pdf_filename))
+
 
 @app.route('/')
 def index():
@@ -412,6 +387,7 @@ def index():
     finally:
         session.close()
 
+
 @app.route('/update_game', methods=['POST'])
 def update_game():
     """
@@ -471,6 +447,7 @@ def update_game():
                 return jsonify({"status": "failure", "error": "Game not in expected region"}), 500
             pairing_index = game_index // 2
 
+            # Update dependent game recursively.
             update_dependent_for_pairing(session, region, base_round, pairing_index)
 
         elif base_round == "Elite 8":
@@ -522,6 +499,7 @@ def update_game():
         return jsonify({"status": "failure", "error": str(e)}), 500
     finally:
         session.close()
+
 
 if __name__ == '__main__':
     db_path = DATABASE_URL.replace("sqlite:///", "")
