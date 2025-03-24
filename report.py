@@ -146,7 +146,7 @@ def generate_report(pdf_filename=None):
                     return f"<b>{category}:</b> None"
                 return f"<b>{category} ({len(items)}):</b> " + ", ".join(items)
             
-            player_flowables.append(Paragraph(format_category("Still In", still_in_list), styles['Normal']))
+            player_flowables.append(Paragraph(format_category("Won This Round", still_in_list), styles['Normal']))
             player_flowables.append(Paragraph(format_category("Not Played Yet", not_played_list), styles['Normal']))
             player_flowables.append(Paragraph(format_category("Out", out_list), styles['Normal']))
             
