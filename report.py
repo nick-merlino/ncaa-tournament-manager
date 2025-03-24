@@ -6,10 +6,9 @@ It includes:
   - A current round section showing player picks and scores,
     with players grouped by score levels (with a horizontal separator between groups).
   - Several visual sections:
-      * A modern line chart showing "Player Points".
+      * A modern line chart showing "Player Points" with player names as x-axis labels.
       * An upsets table that lists all games with seed differentials (all upsets).
       * Bar charts for the 10 most popular and 10 least popular teams still remaining.
-      * A region breakdown chart.
 Each visual is grouped with its title so that they remain on the same page.
 """
 
@@ -157,16 +156,21 @@ def generate_report(pdf_filename=None):
 
         # -- Player Points Line Chart --
         if not df.empty:
+            # Use player names as x-axis labels.
             user_points_sorted = user_points_df.sort_values(by='points', ascending=False)
-            x_vals = list(range(1, len(user_points_sorted) + 1))
+            x_vals = user_points_sorted['username'].tolist()
             fig_line = go.Figure(
                 data=[go.Scatter(x=x_vals, y=user_points_sorted['points'], mode="lines+markers")],
                 layout=dict(template="plotly_white")
             )
             fig_line.update_layout(
                 title="",
-                xaxis=dict(title="", showticklabels=False),
-                yaxis_title="Points"
+                xaxis_title="Player",
+                yaxis_title="Points",
+                xaxis_tickangle=-45,
+                width=800,  # Fixed width
+                margin=dict(l=40, r=40, t=40, b=150),
+                xaxis=dict(tickfont=dict(size=10))
             )
             line_img = fig_to_image(fig_line)
         else:
@@ -175,7 +179,7 @@ def generate_report(pdf_filename=None):
         player_points_title = Paragraph('<para align="center"><b>Player Points</b></para>', styles['Heading2'])
         pp_group = [player_points_title]
         if line_img:
-            pp_group.append(Image(BytesIO(line_img), width=350, height=250))
+            pp_group.append(Image(BytesIO(line_img), width=400, height=300))
         visuals.append(KeepTogether(pp_group))
         visuals.append(Spacer(1, 12))
 
@@ -242,17 +246,18 @@ def generate_report(pdf_filename=None):
                 losers.add(game.team1)
         still_remaining = all_teams - losers
         remaining_df = team_picks[team_picks['team_name'].isin(still_remaining)]
+        # Limit to top 10 teams.
         top_remaining = remaining_df.sort_values(by='pick_count', ascending=False).head(10)
         fig_top_remaining = go.Figure(
             data=[go.Bar(x=top_remaining['team_name'], y=top_remaining['pick_count'])],
             layout=dict(template="plotly_white")
         )
-        fig_top_remaining.update_layout(title="", xaxis_title="", yaxis_title="Number of Picks")
+        fig_top_remaining.update_layout(title="", xaxis_title="Team", yaxis_title="Number of Picks")
         top_remaining_img = fig_to_image(fig_top_remaining)
         top_remaining_title = Paragraph('<para align="center"><b>10 Most Popular Teams Still Remaining</b></para>', styles['Heading2'])
         popular_group = [top_remaining_title]
         if top_remaining_img:
-            popular_group.append(Image(BytesIO(top_remaining_img), width=350, height=250))
+            popular_group.append(Image(BytesIO(top_remaining_img), width=400, height=300))
         visuals.append(KeepTogether(popular_group))
         visuals.append(Spacer(1, 12))
 
@@ -262,47 +267,16 @@ def generate_report(pdf_filename=None):
             data=[go.Bar(x=least_remaining['team_name'], y=least_remaining['pick_count'])],
             layout=dict(template="plotly_white")
         )
-        fig_least_remaining.update_layout(title="", xaxis_title="", yaxis_title="Number of Picks")
+        fig_least_remaining.update_layout(title="", xaxis_title="Team", yaxis_title="Number of Picks")
         least_remaining_img = fig_to_image(fig_least_remaining)
         least_remaining_title = Paragraph('<para align="center"><b>10 Least Popular Teams Still Remaining</b></para>', styles['Heading2'])
         least_group = [least_remaining_title]
         if least_remaining_img:
-            least_group.append(Image(BytesIO(least_remaining_img), width=350, height=250))
+            least_group.append(Image(BytesIO(least_remaining_img), width=400, height=300))
         visuals.append(KeepTogether(least_group))
         visuals.append(Spacer(1, 12))
 
-        # -- Region Breakdown Chart --
-        with open("tournament_bracket.json", 'r') as f:
-            bracket_data = json.load(f)
-        region_mapping = {}
-        for region in bracket_data.get("regions", []):
-            region_name = region["region_name"]
-            teams = [team["team_name"] for team in region["teams"]]
-            region_mapping[region_name] = teams
-        region_status = {}
-        for region, teams in region_mapping.items():
-            counts = {"in": 0, "not_played": 0, "out": 0}
-            for team in teams:
-                status = determine_team_status(team, current_round, visible_rounds)
-                counts[status] += 1
-            region_status[region] = counts
-        regions = list(region_status.keys())
-        in_counts = [region_status[r]["in"] for r in regions]
-        not_played_counts = [region_status[r]["not_played"] for r in regions]
-        out_counts = [region_status[r]["out"] for r in regions]
-        fig_region = go.Figure(data=[
-            go.Bar(name='In', x=regions, y=in_counts),
-            go.Bar(name='Not Played Yet', x=regions, y=not_played_counts),
-            go.Bar(name='Out', x=regions, y=out_counts)
-        ])
-        fig_region.update_layout(barmode='stack', title="", xaxis_title="Region", yaxis_title="Number of Teams")
-        region_img = fig_to_image(fig_region)
-        region_title = Paragraph('<para align="center"><b>Region Breakdown Chart</b></para>', styles['Heading2'])
-        region_group = [region_title]
-        if region_img:
-            region_group.append(Image(BytesIO(region_img), width=350, height=250))
-        visuals.append(KeepTogether(region_group))
-        visuals.append(Spacer(1, 12))
+        # Note: Region Breakdown Chart has been removed per request.
 
         # Add all visual groups to the story.
         for group in visuals:
