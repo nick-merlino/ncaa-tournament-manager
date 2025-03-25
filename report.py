@@ -31,7 +31,7 @@ from sqlalchemy.orm import joinedload
 
 from config import logger
 from db import SessionLocal, User, UserPick, UserScore, TournamentResult
-from scoring import get_round_game_status, calculate_best_case_scores
+from scoring import get_round_game_status, calculate_best_case_scores, calculate_worst_case_scores
 from constants import ROUND_ORDER, ROUND_WEIGHTS, FIRST_ROUND_PAIRINGS
 
 
@@ -365,12 +365,23 @@ def generate_upsets_table(story, styles):
         logger.error(f"Error generating upsets table: {e}")
 
 
-def generate_best_case_table(story, styles, user_points_df, sorted_users):
+def generate_potential_score_table(story, styles, user_points_df, sorted_users):
     """
-    Generates a table for the best-case final scores for each user.
+    Generates a table showing for each user:
+    Rank, Player, Current Score, Guaranteed Points, Potential Points,
+    Worst Case Score, and Best Case Score.
+    
+    Guaranteed Points are computed as (Worst Case Score - Current Score).
+    Potential Points are computed as (Best Case Score - Current Score).
+    
+    The table is sorted by Best Case Score (descending), then Current Score, then name.
     """
     try:
+        # Compute best-case and worst-case final scores.
         best_case_scores = calculate_best_case_scores()
+        worst_case_scores = calculate_worst_case_scores()
+
+        # Build a dictionary of current scores.
         current_scores = {}
         if not user_points_df.empty:
             for _, row in user_points_df.iterrows():
@@ -378,30 +389,44 @@ def generate_best_case_table(story, styles, user_points_df, sorted_users):
         else:
             for uname in sorted_users:
                 current_scores[uname] = 0
+
+        # Calculate bonus components.
         potential_points = {
             uname: best_case_scores.get(uname, current_scores.get(uname, 0)) - current_scores.get(uname, 0)
             for uname in current_scores
         }
+        guaranteed_points = {
+            uname: worst_case_scores.get(uname, current_scores.get(uname, 0)) - current_scores.get(uname, 0)
+            for uname in current_scores
+        }
+
+        # Sort players by Best Case Score (descending), then current score, then name.
         sorted_players = sorted(
             current_scores.keys(),
             key=lambda x: (-best_case_scores.get(x, 0), -current_scores.get(x, 0), x)
         )
+
+        # Create a ranked list (ties share the same rank).
         ranked_list = []
         prev_best = None
         current_rank = 0
         for idx, uname in enumerate(sorted_players, start=1):
             bc = best_case_scores.get(uname, current_scores.get(uname, 0))
+            wc = worst_case_scores.get(uname, current_scores.get(uname, 0))
             curr = current_scores.get(uname, 0)
             pot = potential_points.get(uname, 0)
+            guar = guaranteed_points.get(uname, 0)
             if bc != prev_best:
                 current_rank = idx
-            ranked_list.append((current_rank, uname, curr, pot, bc))
+            ranked_list.append((current_rank, uname, curr, guar, pot, wc, bc))
             prev_best = bc
 
-        table_data = [['Rank', 'Player', 'Current Score', 'Potential Points', 'Best Case Score']]
-        for rank, uname, curr, pot, bc in ranked_list:
-            table_data.append([str(rank), uname, f"{curr:.0f}", f"{pot:.0f}", f"{bc:.0f}"])
+        # Build table data.
+        table_data = [['Rank', 'Player', 'Current Score', 'Guaranteed', 'Potential', 'Worst Case Score', 'Best Case Score']]
+        for rank, uname, curr, guar, pot, wc, bc in ranked_list:
+            table_data.append([str(rank), uname, f"{curr:.0f}", f"{guar:.0f}", f"{pot:.0f}", f"{wc:.0f}", f"{bc:.0f}"])
 
+        # (Optional) Apply span commands similar to your other tables.
         span_commands = []
         row_idx = 1
         while row_idx < len(table_data):
@@ -414,6 +439,7 @@ def generate_best_case_table(story, styles, user_points_df, sorted_users):
                 span_commands.append(("SPAN", (0, start_idx), (0, end_idx)))
             row_idx = end_idx + 1
 
+        # Set up table styling.
         potential_table = Table(table_data, hAlign='CENTER')
         base_style = [
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
@@ -427,13 +453,26 @@ def generate_best_case_table(story, styles, user_points_df, sorted_users):
         for cmd in span_commands:
             base_style.append(cmd)
         potential_table.setStyle(TableStyle(base_style))
-        potential_title = Paragraph('<para align="center"><b>Best Case Scenario Final Scores</b></para>', styles['Heading2'])
-        potential_subtitle = Paragraph('<para align="center"><font size="8" color="grey">If everyone\'s brackets went perfectly from now on</font></para>', styles['Normal'])
-        group = [potential_title, potential_subtitle, Spacer(1, 12), potential_table]
+
+        # Add title and subtitle.
+        potential_title = Paragraph('<para align="center"><b>Potential Scenarios Final Scores</b></para>', styles['Heading2'])
+        potential_subtitle_1 = Paragraph(
+            '<para align="center"><font size="8" color="grey">'
+            'Scores if future results are as bad as and as good as possible per person'
+            '</font></para>',
+            styles['Normal']
+        )
+        potential_subtitle_2 = Paragraph(
+            '<para align="center"><font size="8" color="grey">'
+            'This considers that your teams will sometimes play each other and that means both of your teams can\'t win sometimes'
+            '</font></para>',
+            styles['Normal']
+        )
+        group = [potential_title, potential_subtitle_1, potential_subtitle_2, Spacer(1, 12), potential_table]
         story.append(PageBreak())
         story.append(KeepTogether(group))
     except Exception as e:
-        logger.error(f"Error generating best-case table: {e}")
+        logger.error(f"Error generating potential scenario table: {e}")
 
 
 def generate_report(pdf_filename=None):
@@ -494,7 +533,7 @@ def generate_report(pdf_filename=None):
         generate_least_popular_chart(story, styles, df, visible_rounds)
         generate_player_points_chart(story, styles, user_points_df)
         generate_upsets_table(story, styles)
-        generate_best_case_table(story, styles, user_points_df, sorted_users)
+        generate_potential_score_table(story, styles, user_points_df, sorted_users)
 
         doc.build(story, onFirstPage=add_page_number, onLaterPages=add_page_number)
         logger.info(f"PDF report saved as {pdf_filename}")

@@ -263,3 +263,140 @@ def calculate_best_case_scores():
         return {}
     finally:
         session.close()
+
+def calculate_worst_case_scores():
+    """
+    Calculates worst-case final scores for each user.
+    For each future game, if the user holds both teams (i.e. guaranteed win), they earn the bonus;
+    otherwise, assume no bonus is awarded.
+    Worst-case score = current score + guaranteed (future) points.
+    """
+    session = SessionLocal()
+    try:
+        # Retrieve users and their picks.
+        users = session.query(User).options(joinedload(User.picks)).all()
+        current_scores = {}
+        user_picks = {}
+        for user in users:
+            score_obj = session.query(UserScore).filter_by(user_id=user.user_id).first()
+            current_scores[user.full_name] = score_obj.points if score_obj else 0.0
+            user_picks[user.full_name] = {pick.team_name.strip() for pick in user.picks}
+
+        # Determine visible rounds.
+        current_round, visible_rounds = get_round_game_status()
+        if not current_round:
+            current_round = ROUND_ORDER[0]
+        current_index = ROUND_ORDER.index(current_round)
+
+        # Prune surviving teams from completed rounds (same as best-case).
+        user_survivors = {}
+        for user in users:
+            name = user.full_name
+            survivors = set(user_picks.get(name, set()))
+            for rnd in ROUND_ORDER:
+                if rnd not in visible_rounds:
+                    break
+                games = visible_rounds[rnd]
+                if not all(game.get("winner") and game["winner"].strip() for game in games):
+                    break
+                new_survivors = set()
+                for game in games:
+                    w = game.get("winner", "").strip()
+                    if w in survivors:
+                        new_survivors.add(w)
+                survivors = new_survivors
+            if not survivors:
+                survivors = set(user_picks.get(name, set()))
+            user_survivors[name] = survivors
+
+        # Load tournament bracket for simulation.
+        with open("tournament_bracket.json", "r") as f:
+            bracket = json.load(f)
+        regions = bracket.get("regions", [])
+
+        # Simulate regional rounds.
+        regional_sim = {}
+        for region in regions:
+            region_name = region.get("region_name", "Unknown")
+            teams_by_seed = {team["seed"]: team["team_name"].strip() for team in region.get("teams", [])}
+            r64 = []
+            for pairing in FIRST_ROUND_PAIRINGS:
+                teamA = teams_by_seed.get(pairing[0])
+                teamB = teams_by_seed.get(pairing[1])
+                r64.append({"teams": {teamA, teamB}})
+            r32 = []
+            for i in range(4):
+                teams = r64[2 * i]["teams"].union(r64[2 * i + 1]["teams"])
+                r32.append({"teams": teams})
+            s16 = []
+            for i in range(2):
+                teams = r32[2 * i]["teams"].union(r32[2 * i + 1]["teams"])
+                s16.append({"teams": teams})
+            e8 = [{"teams": s16[0]["teams"].union(s16[1]["teams"])}]
+            regional_sim[region_name] = {
+                "Round of 64": r64,
+                "Round of 32": r32,
+                "Sweet 16": s16,
+                "Elite 8": e8
+            }
+
+        simulated_bracket = {}
+        for rnd in ["Round of 64", "Round of 32", "Sweet 16", "Elite 8"]:
+            games = []
+            for region in regions:
+                region_name = region.get("region_name", "Unknown")
+                games.extend(regional_sim.get(region_name, {}).get(rnd, []))
+            simulated_bracket[rnd] = games
+
+        # Interregional rounds.
+        final_four = []
+        if len(regions) >= 4:
+            teams_ff0 = set(regional_sim.get(regions[0]["region_name"], {}).get("Elite 8", [{}])[0].get("teams", set())).union(
+                        set(regional_sim.get(regions[1]["region_name"], {}).get("Elite 8", [{}])[0].get("teams", set())))
+            final_four.append({"teams": teams_ff0})
+            teams_ff1 = set(regional_sim.get(regions[2]["region_name"], {}).get("Elite 8", [{}])[0].get("teams", set())).union(
+                        set(regional_sim.get(regions[3]["region_name"], {}).get("Elite 8", [{}])[0].get("teams", set())))
+            final_four.append({"teams": teams_ff1})
+        simulated_bracket["Final Four"] = final_four
+        if len(final_four) == 2:
+            championship_set = set(final_four[0]["teams"]).union(final_four[1]["teams"])
+            simulated_bracket["Championship"] = [{"teams": championship_set}]
+        else:
+            simulated_bracket["Championship"] = []
+
+        future_rounds = ROUND_ORDER[current_index:]
+
+        import itertools
+        def simulate_round_worst(survivors, round_index):
+            if round_index >= len(future_rounds):
+                return 0
+            rnd = future_rounds[round_index]
+            games = simulated_bracket.get(rnd, [])
+            weight = ROUND_WEIGHTS.get(rnd, 1)
+            possibilities = []
+            for game in games:
+                common = survivors.intersection(game["teams"])
+                # If the user holds both teams, bonus is guaranteed.
+                if len(common) == 2:
+                    possibilities.append(list(common))
+                else:
+                    possibilities.append([None])
+            worst_bonus = float('inf')
+            for outcome in itertools.product(*possibilities):
+                bonus = sum(weight if winner is not None else 0 for winner in outcome)
+                new_survivors = {winner for winner in outcome if winner is not None}
+                bonus += simulate_round_worst(new_survivors, round_index + 1)
+                worst_bonus = min(worst_bonus, bonus)
+            return worst_bonus if worst_bonus != float('inf') else 0
+
+        worst_case_scores = {}
+        for name, survivors in user_survivors.items():
+            bonus = simulate_round_worst(survivors, 0)
+            worst_case_scores[name] = current_scores.get(name, 0) + bonus
+
+        return worst_case_scores
+    except Exception as e:
+        logger.error(f"Error calculating worst-case scores: {e}")
+        return {}
+    finally:
+        session.close()
