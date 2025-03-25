@@ -22,6 +22,27 @@
       ]
     },
     {
+      "region_name": "West",
+      "teams": [
+        { "seed": 1, "team_name": "Florida" },
+        { "seed": 2, "team_name": "St Johns" },
+        { "seed": 3, "team_name": "Texas Tech" },
+        { "seed": 4, "team_name": "Maryland" },
+        { "seed": 5, "team_name": "Memphis" },
+        { "seed": 6, "team_name": "Missouri" },
+        { "seed": 7, "team_name": "Kansas" },
+        { "seed": 8, "team_name": "UConn" },
+        { "seed": 9, "team_name": "Oklahoma" },
+        { "seed": 10, "team_name": "Arkansas" },
+        { "seed": 11, "team_name": "Drake" },
+        { "seed": 12, "team_name": "Colorado St" },
+        { "seed": 13, "team_name": "Grand Canyon" },
+        { "seed": 14, "team_name": "UNCW" },
+        { "seed": 15, "team_name": "Omaha" },
+        { "seed": 16, "team_name": "Norfolk" }
+      ]
+    },
+    {
       "region_name": "East",
       "teams": [
         { "seed": 1, "team_name": "Duke" },
@@ -61,27 +82,6 @@
         { "seed": 14, "team_name": "Troy" },
         { "seed": 15, "team_name": "Wofford" },
         { "seed": 16, "team_name": "SIUE" }
-      ]
-    },
-    {
-      "region_name": "West",
-      "teams": [
-        { "seed": 1, "team_name": "Florida" },
-        { "seed": 2, "team_name": "St Johns" },
-        { "seed": 3, "team_name": "Texas Tech" },
-        { "seed": 4, "team_name": "Maryland" },
-        { "seed": 5, "team_name": "Memphis" },
-        { "seed": 6, "team_name": "Missouri" },
-        { "seed": 7, "team_name": "Kansas" },
-        { "seed": 8, "team_name": "UConn" },
-        { "seed": 9, "team_name": "Oklahoma" },
-        { "seed": 10, "team_name": "Arkansas" },
-        { "seed": 11, "team_name": "Drake" },
-        { "seed": 12, "team_name": "Colorado St" },
-        { "seed": 13, "team_name": "Grand Canyon" },
-        { "seed": 14, "team_name": "UNCW" },
-        { "seed": 15, "team_name": "Omaha" },
-        { "seed": 16, "team_name": "Norfolk" }
       ]
     }
   ]
