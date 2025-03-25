@@ -311,102 +311,12 @@ def generate_report(pdf_filename=None):
         visuals.append(Spacer(1, 12))
 
         # ---- Best Case Scenario Final Scores Table ----
+        
+        # Import the new simulation function.
+        from scoring import calculate_best_case_scores
+        best_case_scores = calculate_best_case_scores()
 
-        # Load the full bracket structure from tournament_bracket.json.
-        with open("tournament_bracket.json", "r") as f:
-            bracket = json.load(f)
-        regions = bracket.get("regions", [])
-
-        # Build simulated regional games for rounds: Round of 64, Round of 32, Sweet 16, and Elite 8.
-        regional_games = {}
-        for region in regions:
-            region_name = region["region_name"]
-            teams_by_seed = {team["seed"]: team["team_name"].strip() for team in region["teams"]}
-            # Build Round of 64 games using FIRST_ROUND_PAIRINGS.
-            round64 = []
-            for pairing in FIRST_ROUND_PAIRINGS:
-                teamA = teams_by_seed.get(pairing[0])
-                teamB = teams_by_seed.get(pairing[1])
-                round64.append({"teams": {teamA, teamB}})
-            # Build Round of 32 (each game is the union of two Round of 64 games).
-            round32 = []
-            for i in range(4):
-                teams = round64[2*i]["teams"].union(round64[2*i+1]["teams"])
-                round32.append({"teams": teams})
-            # Build Sweet 16.
-            sweet16 = []
-            for i in range(2):
-                teams = round32[2*i]["teams"].union(round32[2*i+1]["teams"])
-                sweet16.append({"teams": teams})
-            # Build Elite 8.
-            elite8 = [{"teams": sweet16[0]["teams"].union(sweet16[1]["teams"])}]
-            regional_games[region_name] = {
-                "Round of 64": round64,
-                "Round of 32": round32,
-                "Sweet 16": sweet16,
-                "Elite 8": elite8
-            }
-
-        # Combine regional games to form the full potential bracket.
-        potential_bracket = {}
-        for r in ["Round of 64", "Round of 32", "Sweet 16", "Elite 8"]:
-            games = []
-            for region in regions:
-                region_name = region["region_name"]
-                games.extend(regional_games[region_name][r])
-            potential_bracket[r] = games
-
-        # Build Final Four: pair regions (assumes 4 regions in order).
-        final_four = []
-        if len(regions) >= 4:
-            teams_ff0 = regional_games[regions[0]["region_name"]]["Elite 8"][0]["teams"].union(
-                        regional_games[regions[1]["region_name"]]["Elite 8"][0]["teams"])
-            final_four.append({"teams": teams_ff0})
-            teams_ff1 = regional_games[regions[2]["region_name"]]["Elite 8"][0]["teams"].union(
-                        regional_games[regions[3]["region_name"]]["Elite 8"][0]["teams"])
-            final_four.append({"teams": teams_ff1})
-        potential_bracket["Final Four"] = final_four
-
-        # Build Championship: union of Final Four games.
-        championship = [{"teams": final_four[0]["teams"].union(final_four[1]["teams"])}] if len(final_four)==2 else []
-        potential_bracket["Championship"] = championship
-
-        # Determine which rounds are still future: start at current round (if incomplete) and include all later rounds.
-        current_round, visible_rounds = get_round_game_status()
-        current_index = ROUND_ORDER.index(current_round) if current_round in ROUND_ORDER else 0
-        rounds_to_consider = ROUND_ORDER[current_index:]
-
-        # Build lookup of user picks (assumes 'df' contains user picks with columns 'username' and 'team_name').
-        user_picks = {}
-        for uname in sorted_users:
-            picks = df[df['username'] == uname]['team_name'].apply(lambda x: x.strip()).tolist()
-            user_picks[uname] = set(picks)
-
-        # Initialize potential bonus points for each user.
-        potential_bonus = {uname: 0 for uname in sorted_users}
-
-        # For each round from the current one onward, add bonus if user covers at least one team in each game.
-        for r in rounds_to_consider:
-            weight = ROUND_WEIGHTS.get(r, 1)
-            # For rounds that are visible, only consider games that are still undecided.
-            if r in visible_rounds:
-                for game in visible_rounds[r]:
-                    if game.get("winner") and game["winner"].strip():
-                        continue  # Skip games already decided.
-                    possible_teams = {game.get("team1", "").strip(), game.get("team2", "").strip()}
-                    for uname in sorted_users:
-                        if user_picks[uname].intersection(possible_teams):
-                            potential_bonus[uname] += weight
-            else:
-                # For future rounds that are not yet visible, use the simulated bracket.
-                games = potential_bracket.get(r, [])
-                for game in games:
-                    possible_teams = game["teams"]
-                    for uname in sorted_users:
-                        if user_picks[uname].intersection(possible_teams):
-                            potential_bonus[uname] += weight
-
-        # Retrieve current scores (using user_points_df from earlier).
+        # Retrieve current scores from user_points_df.
         current_scores = {}
         if not df.empty:
             for _, row in user_points_df.iterrows():
@@ -415,46 +325,46 @@ def generate_report(pdf_filename=None):
             for uname in sorted_users:
                 current_scores[uname] = 0
 
-        # Compute the best-case final score for each user.
+        # Compute potential bonus points: best case minus current.
+        potential_points = {
+            uname: best_case_scores.get(uname, current_scores.get(uname, 0)) - current_scores.get(uname, 0)
+            for uname in current_scores
+        }
+
+        # Sort players by best-case score descending, then current score descending, then alphabetically.
+        sorted_players = sorted(
+            current_scores.keys(),
+            key=lambda x: (-best_case_scores.get(x, 0), -current_scores.get(x, 0), x)
+        )
+
         # Apply dense ranking: players with the same best-case score share the same rank.
-        # Order players by best-case score descending, then current score descending, then alphabetical.
         ranked_list = []
         prev_best = None
         current_rank = 0
-        # Use new sorting: best-case (current + bonus) descending, then current descending, then name ascending.
-        for uname in sorted(
-            sorted_users,
-            key=lambda x: (-(current_scores.get(x, 0) + potential_bonus.get(x, 0)),
-                        -current_scores.get(x, 0),
-                        x)
-        ):
-            bonus = potential_bonus.get(uname, 0)
+        for idx, uname in enumerate(sorted_players, start=1):
+            bc = best_case_scores.get(uname, current_scores.get(uname, 0))
             curr = current_scores.get(uname, 0)
-            best_case = curr + bonus
-            # Increase rank only when the best_case value changes.
-            if best_case != prev_best:
-                current_rank += 1
-            ranked_list.append((current_rank, uname, curr, bonus, best_case))
-            prev_best = best_case
+            pot = potential_points.get(uname, 0)
+            if bc != prev_best:
+                current_rank = idx
+            ranked_list.append((current_rank, uname, curr, pot, bc))
+            prev_best = bc
 
-        # Build table data with header.
+        # Build the table data.
         table_data = [['Rank', 'Player', 'Current Score', 'Potential Points', 'Best Case Score']]
-        for rank, uname, curr, bonus, best_case in ranked_list:
-            table_data.append([str(rank), uname, f"{curr:.0f}", f"{bonus:.0f}", f"{best_case:.0f}"])
+        for rank, uname, curr, pot, bc in ranked_list:
+            table_data.append([str(rank), uname, f"{curr:.0f}", f"{pot:.0f}", f"{bc:.0f}"])
 
-        # Now determine groups of rows that share the same rank for vertical cell merging.
-        # Note: table_data row 0 is the header, so data rows start at index 1.
+        # Determine groups of rows with the same rank to merge the "Rank" cell vertically.
         span_commands = []
-        row_idx = 1
+        row_idx = 1  # start after header row (row 0)
         while row_idx < len(table_data):
             current_value = table_data[row_idx][0]
             start_idx = row_idx
             end_idx = row_idx
-            # Count consecutive rows with the same rank.
             while end_idx + 1 < len(table_data) and table_data[end_idx+1][0] == current_value:
                 end_idx += 1
             if end_idx > start_idx:
-                # Merge the rank cells vertically (column 0) from start_idx to end_idx.
                 span_commands.append(("SPAN", (0, start_idx), (0, end_idx)))
             row_idx = end_idx + 1
 
@@ -469,19 +379,23 @@ def generate_report(pdf_filename=None):
             ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]
-        # Add the SPAN commands for tied ranks.
         for cmd in span_commands:
             base_style.append(cmd)
-
         potential_table.setStyle(TableStyle(base_style))
 
-        potential_title = Paragraph('<para align="center"><b>Best Case Scenario Final Scores</b></para>', styles['Heading2'])
-        potential_subtitle = Paragraph('<para align="center"><font size="8" color="grey">If everyone\'s brackets went perfectly from now on</font></para>', styles['Normal'])
-        potential_group = [potential_title, potential_subtitle, Spacer(1, 12)]
-        if potential_table:
-            potential_group.append(potential_table)
+        potential_title = Paragraph(
+            '<para align="center"><b>Best Case Scenario Final Scores</b></para>',
+            styles['Heading2']
+        )
+        potential_subtitle = Paragraph(
+            '<para align="center"><font size="8" color="grey">If everyone\'s brackets went perfectly from now on</font></para>',
+            styles['Normal']
+        )
+        potential_group = [potential_title, potential_subtitle, Spacer(1, 12), potential_table]
+
+        # Add the best-case scores table to a new page at the end of the report.
+        visuals.append(PageBreak())
         visuals.append(KeepTogether(potential_group))
-        visuals.append(Spacer(1, 12))
 
         # Add all visual groups to the story.
         for group in visuals:
