@@ -1,26 +1,25 @@
 """
 db.py
 
-This module defines the database models for the NCAA Tournament Picks application using SQLAlchemy.
-It includes models for users, user picks, tournament matchups, and user scores.
-It also initializes the database engine and provides helper functions for initializing and clearing matchup data.
+This module defines the database models and initialization functions for the NCAA Tournament Picks application.
+It uses SQLAlchemy to manage database sessions and models for Users, User Picks, Tournament Results, and User Scores.
 """
 
 from sqlalchemy import create_engine, Column, Integer, String, Float, ForeignKey
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from config import DATABASE_URL
 
-# Base class for all ORM models.
+# Create a base class for all ORM models.
 Base = declarative_base()
 
 class User(Base):
     """
-    Represents a participant in the tournament.
-    
+    Represents a tournament participant.
+
     Attributes:
-        user_id (int): Primary key; unique identifier for the user.
-        full_name (str): The full name of the user (must be unique).
-        picks (List[UserPick]): A list of picks made by the user.
+        user_id (int): Primary key, unique identifier for the user.
+        full_name (str): User's full name (must be unique).
+        picks (List[UserPick]): List of picks made by the user.
     """
     __tablename__ = 'users'
     user_id = Column(Integer, primary_key=True, autoincrement=True)
@@ -30,12 +29,12 @@ class User(Base):
 class UserPick(Base):
     """
     Represents a single pick made by a user.
-    
+
     Attributes:
         pick_id (int): Primary key for the pick.
         user_id (int): Foreign key linking to the associated user.
-        seed_label (str): The label of the seed (e.g., "Seed 1").
-        team_name (str): The team selected by the user for this seed.
+        seed_label (str): Label for the seed (e.g., "Seed 1").
+        team_name (str): The team selected by the user.
     """
     __tablename__ = 'user_picks'
     pick_id = Column(Integer, primary_key=True, autoincrement=True)
@@ -47,13 +46,13 @@ class UserPick(Base):
 class TournamentResult(Base):
     """
     Represents a game in the tournament bracket.
-    
+
     Attributes:
         game_id (int): Primary key for the game.
-        round_name (str): The round and region of the game (e.g., "Round of 64 - South").
+        round_name (str): The round and region (e.g., "Round of 64 - South").
         team1 (str): Name of the first team.
         team2 (str): Name of the second team.
-        winner (str, optional): The winning team; None if the game has not been decided.
+        winner (str): The winning team; None if undecided.
     """
     __tablename__ = 'tournament_results'
     game_id = Column(Integer, primary_key=True)
@@ -64,13 +63,13 @@ class TournamentResult(Base):
 
 class UserScore(Base):
     """
-    Stores the calculated score for each user based on their correct picks.
-    
+    Stores the calculated score for a user based on correct picks.
+
     Attributes:
         score_id (int): Primary key for the score record.
         user_id (int): Foreign key linking to the associated user.
-        points (float): The total points accumulated by the user.
-        last_updated (str): Timestamp (in ISO format) when the score was last updated.
+        points (float): Total points accumulated by the user.
+        last_updated (str): ISO formatted timestamp for the last update.
     """
     __tablename__ = 'user_scores'
     score_id = Column(Integer, primary_key=True, autoincrement=True)
@@ -78,7 +77,7 @@ class UserScore(Base):
     points = Column(Float, default=0.0)
     last_updated = Column(String)
 
-# Create the SQLAlchemy engine using the DATABASE_URL from config.
+# Create the SQLAlchemy engine using the DATABASE_URL from configuration.
 engine = create_engine(DATABASE_URL, echo=False)
 
 # Create a session factory bound to the engine.
@@ -87,7 +86,7 @@ SessionLocal = sessionmaker(bind=engine)
 def init_db():
     """
     Initializes the database by creating all tables defined in the ORM models.
-    This function should be called at the start of the application.
+    Call this at application startup to ensure the database schema is in place.
     """
     Base.metadata.create_all(engine)
 

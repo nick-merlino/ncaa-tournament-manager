@@ -1,11 +1,15 @@
 """
 constants.py
 
-This module contains shared constants used across the NCAA Tournament Picks application.
-These constants include the tournament round order and the first round pairings.
+Shared constants for the NCAA Tournament Picks application.
+
+This module defines:
+  - The sequential order of tournament rounds.
+  - The pairings for first round matchups.
+  - The scoring weights for each round.
 """
 
-# Define the order of tournament rounds.
+# Define the tournament rounds in their sequential order.
 ROUND_ORDER = [
     "Round of 64",
     "Round of 32",
@@ -15,8 +19,8 @@ ROUND_ORDER = [
     "Championship"
 ]
 
-# Define the pairings for the first round.
-# Each tuple represents a matchup: (lower seed, higher seed)
+# Define the pairings for the first round matchups.
+# Each tuple represents the matchup seeds: (lower seed, higher seed)
 FIRST_ROUND_PAIRINGS = [
     (1, 16),
     (8, 9),
@@ -28,7 +32,7 @@ FIRST_ROUND_PAIRINGS = [
     (2, 15)
 ]
 
-# Round weights configuration
+# Define the scoring weight assigned to each round.
 ROUND_WEIGHTS = {
     "Round of 64": 1,
     "Round of 32": 1,
