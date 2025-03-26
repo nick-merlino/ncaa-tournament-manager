@@ -94,7 +94,7 @@ def generate_user_overview(story, styles, df, user_points_df, sorted_users, visi
     
     story.append(Paragraph(f"Current Round in Progress: {current_round}", styles['Title']))
     story.append(Paragraph(
-        '<para align="center"><font size="8" color="grey">Team Key: seed(points)-Team Name</font></para>',
+        '<para align="center"><font size="8" color="grey">Team Key: \"Seed-Team Name (Points)\"</font></para>',
         styles['Normal']))
     story.append(Paragraph(
         f'<para align="center"><font size="8" color="grey">Maximum Theoretical Score: {max_score}</font></para>',
@@ -131,7 +131,7 @@ def generate_user_overview(story, styles, df, user_points_df, sorted_users, visi
                         if game.get('winner') and game['winner'].strip() == team.strip():
                             team_points += ROUND_WEIGHTS.get(r, 0)
                             break
-            team_display = f"{seed_int}({team_points}) {team}"
+            team_display = f"{seed_int}-{team} ({team_points})"
             if status == 'in':
                 still_in_picks.append((seed_int, team_display))
             elif status == 'out':
