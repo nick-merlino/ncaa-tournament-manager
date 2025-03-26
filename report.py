@@ -467,12 +467,12 @@ def generate_potential_score_table(story, styles, user_points_df, sorted_users):
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
             # Middle rows
-            ('BACKGROUND', (0, 1), (-1, -2), colors.beige),
+            ('BACKGROUND', (0, 1), (-1, len(table_data)-2), colors.beige),
             # Last row (header)
-            ('BACKGROUND', (0, -1), (-1, -1), colors.grey),
-            ('TEXTCOLOR', (0, -1), (-1, -1), colors.whitesmoke),
-            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-            ('TOPPADDING', (0, -1), (-1, -1), 12),
+            ('BACKGROUND', (0, -1), (-1, len(table_data)-1), colors.grey),
+            ('TEXTCOLOR', (0, -1), (-1, len(table_data)-1), colors.whitesmoke),
+            ('FONTNAME', (0, -1), (-1, len(table_data)-1), 'Helvetica-Bold'),
+            ('TOPPADDING', (0, -1), (-1, len(table_data)-1), 12),
         ]
         for cmd in span_commands:
             base_style.append(cmd)
