@@ -87,9 +87,17 @@ def generate_user_overview(story, styles, df, user_points_df, sorted_users, visi
     """
     Generates the current round overview with player picks and scores.
     """
+   
+    # Import and calculate the maximum theoretical score.
+    from scoring import calculate_maximum_possible_score
+    max_score = calculate_maximum_possible_score()
+    
     story.append(Paragraph(f"Current Round in Progress: {current_round}", styles['Title']))
     story.append(Paragraph(
         '<para align="center"><font size="8" color="grey">Team key: seed(points)-Team Name</font></para>',
+        styles['Normal']))
+    story.append(Paragraph(
+        f'<para align="center"><font size="8" color="grey">Maximum Theoretical Score: {max_score}</font></para>',
         styles['Normal']))
     story.append(Spacer(1, 12))
 

@@ -400,3 +400,23 @@ def calculate_worst_case_scores():
         return {}
     finally:
         session.close()
+
+def calculate_maximum_possible_score():
+    """
+    Calculates the theoretical maximum score a player can achieve under the one-team-per-seed rule,
+    using the round weights and win multipliers defined in constants.py.
+
+    The maximum score is computed by summing, for each round in ROUND_ORDER,
+      (win multiplier for the round) * (round weight from ROUND_WEIGHTS).
+
+    Returns:
+        float: The maximum theoretical score.
+    """
+    # Defines the maximum number of teams that can survive per round in a perfect bracket
+    multipliers = [16, 16, 8, 4, 2, 1]
+    
+    max_score = 0
+    for i, round_name in enumerate(ROUND_ORDER):
+        weight = ROUND_WEIGHTS.get(round_name, 1)
+        max_score += weight * multipliers[i]
+    return max_score

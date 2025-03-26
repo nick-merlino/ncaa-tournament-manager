@@ -470,4 +470,4 @@ if __name__ == '__main__':
     except GoogleSheetsError as e:
         logger.error(f"Google Sheets integration error: {e}")
     # Start the Flask development server
-    app.run(debug=True)
+    app.run(debug=False)
