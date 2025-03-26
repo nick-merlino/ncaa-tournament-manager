@@ -411,7 +411,13 @@ def generate_potential_score_table(story, styles, user_points_df, sorted_users):
         # Sort players by Best Case Score (descending), then current score, then name.
         sorted_players = sorted(
             current_scores.keys(),
-            key=lambda x: (-best_case_scores.get(x, 0), -current_scores.get(x, 0), x)
+            key=lambda x: (
+                -best_case_scores.get(x, 0),
+                -current_scores.get(x, 0),
+                -guaranteed_points.get(x, 0),
+                -potential_points.get(x, 0),
+                x
+            )
         )
 
         # Create a ranked list (ties share the same rank).
