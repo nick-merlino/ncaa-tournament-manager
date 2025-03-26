@@ -430,9 +430,11 @@ def generate_potential_score_table(story, styles, user_points_df, sorted_users):
             prev_best = bc
 
         # Build table data.
-        table_data = [['Rank', 'Player', 'Current Score', 'Guaranteed', 'Potential', 'Worst Case Score', 'Best Case Score']]
+        header = ['Rank', 'Player', 'Current Score', 'Guaranteed', 'Potential', 'Worst Case Score', 'Best Case Score']
+        table_data = [header]
         for rank, uname, curr, guar, pot, wc, bc in ranked_list:
             table_data.append([str(rank), uname, f"{curr:.0f}", f"{guar:.0f}", f"{pot:.0f}", f"{wc:.0f}", f"{bc:.0f}"])
+        table_data.append(header)
 
         # (Optional) Apply span commands similar to your other tables.
         span_commands = []
@@ -450,13 +452,21 @@ def generate_potential_score_table(story, styles, user_points_df, sorted_users):
         # Set up table styling.
         potential_table = Table(table_data, hAlign='CENTER')
         base_style = [
+            # All rows
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            # First row (header)
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            # Middle rows
+            ('BACKGROUND', (0, 1), (-1, -2), colors.beige),
+            # Last row (header)
+            ('BACKGROUND', (0, -1), (-1, -1), colors.grey),
+            ('TEXTCOLOR', (0, -1), (-1, -1), colors.whitesmoke),
+            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+            ('TOPPADDING', (0, -1), (-1, -1), 12),
         ]
         for cmd in span_commands:
             base_style.append(cmd)
