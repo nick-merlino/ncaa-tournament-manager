@@ -94,7 +94,7 @@ def generate_user_overview(story, styles, df, user_points_df, sorted_users, visi
     
     story.append(Paragraph(f"Current Round in Progress: {current_round}", styles['Title']))
     story.append(Paragraph(
-        '<para align="center"><font size="8" color="grey">Team key: seed(points)-Team Name</font></para>',
+        '<para align="center"><font size="8" color="grey">Team Key: seed(points)-Team Name</font></para>',
         styles['Normal']))
     story.append(Paragraph(
         f'<para align="center"><font size="8" color="grey">Maximum Theoretical Score: {max_score}</font></para>',
