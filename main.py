@@ -295,9 +295,9 @@ def generate_pdf_route():
     from datetime import datetime
     calculate_scoring()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    pdf_filename = f"NCAA_Report_{timestamp}.pdf"
+    pdf_filename = f"Merlino_NCAA_March_Madness_{timestamp}.pdf"
     pdf_path = os.path.join(app.static_folder, pdf_filename)
-    generate_report(pdf_path)
+    generate_report(pdf_path, pdf_filename)
     return redirect(url_for('static', filename=pdf_filename))
 
 
