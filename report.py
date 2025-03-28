@@ -212,122 +212,114 @@ def generate_locked_positions_section(
     worst_case_scores
 ):
     """
-    Displays locked positions for 1st, 2nd, 3rd, and Last, using the definition:
-      - "A user is locked for that position if their worstCase >= every other
-         user's bestCase among the remaining group for that position."
+    Displays locked positions for 1st, 2nd, 3rd, and Last.
 
-    For 'Last', we do the analogous approach in reverse:
-      - "A user is locked for last if their bestCase <= every other remaining user's worstCase."
-
-    Output format (centered, with bold rank labels):
-      <para align='center'><b>Winners</b></para>
-      <para align='center'><b>1st</b> - NameX / NameY</para>
-      <para align='center'><b>2nd</b> - ...</para>
-      <para align='center'><b>3rd</b> - </para>
-      <para align='center'><b>Last</b> - NameZ</para>
+    Winners (1st, 2nd, 3rd) are determined as follows:
+      - First, remove any candidate locked for Last from consideration.
+      - Then, from the remaining candidates (assumed sorted descending by current score),
+        form a contiguous block for 1st using a helper:
+          • If that block contains exactly 1 candidate, that candidate is locked for 1st.
+          • Otherwise, if it contains more than 1, the entire block is tied for 1st and 2nd and 3rd are empty.
+      - If 1st is uniquely determined, remove that candidate and form the block for 2nd.
+          • If that block contains exactly 1 candidate, that candidate is locked for 2nd.
+          • Otherwise, if it contains more than 1, the entire block is tied for 2nd and 3rd is empty.
+      - If 2nd is uniquely determined, remove that candidate and form the block for 3rd.
+    For Last, a contiguous block is formed from the reversed sorted list using a similar tie condition.
     """
-
     from reportlab.platypus import Paragraph, Spacer
-    from reportlab.lib import colors
+    from config import logger
 
-    # Centered heading
-    story.append(Paragraph("<para align='center'><b>Winners</b></para>", styles['Heading2']))
-
-    if user_points_df.empty or user_points_df.shape[0] == 0:
-        # If no scores exist
-        story.append(Paragraph("<para align='center'>No scores available.</para>", styles['Normal']))
-        story.append(Spacer(1, 12))
-        return
-
-    # Quick lookups
+    # Build a lookup for current scores.
     current_scores = {row['username']: row['points'] for _, row in user_points_df.iterrows()}
 
-    # Separate user lists for top/bottom rank logic
-    remaining_for_top = sorted_users[:]
-    remaining_for_bottom = sorted_users[:]
+    def get_int_scores(u):
+        # Returns (best_case, worst_case) as integers.
+        bc = int(round(float(best_case_scores.get(u, current_scores[u]))))
+        wc = int(round(float(worst_case_scores.get(u, current_scores[u]))))
+        return bc, wc
 
-    def is_locked_for_position(u, group):
-        u_wc = worst_case_scores.get(u, current_scores[u])
-        for other in group:
-            if other == u:
-                continue
-            o_bc = best_case_scores.get(other, current_scores[other])
-            if o_bc > u_wc:
-                return False
-        return True
+    # First, compute locked for Last.
+    # Process the reverse of sorted_users.
+    reverse_candidates = list(reversed(sorted_users))
+    locked_last = []
+    if reverse_candidates:
+        block = [reverse_candidates[0]]
+        # For last, we consider the contiguous block if the next candidate's worst-case equals
+        # the top candidate's best-case.
+        top_candidate = reverse_candidates[0]
+        top_bc, _ = get_int_scores(top_candidate)
+        for candidate in reverse_candidates[1:]:
+            cand_bc, cand_wc = get_int_scores(candidate)
+            if cand_wc == top_bc:
+                block.append(candidate)
+            else:
+                break
+        locked_last = block
+    logger.debug(f"Locked last: {locked_last}")
 
-    def is_locked_for_last(u, group):
-        u_bc = best_case_scores.get(u, current_scores[u])
-        for other in group:
-            if other == u:
-                continue
-            o_wc = worst_case_scores.get(other, current_scores[other])
-            if o_wc < u_bc:
-                return False
-        return True
+    # Exclude locked_last from winners.
+    winners_candidates = [u for u in sorted_users if u not in locked_last]
+    logger.debug(f"Winners candidates (excluding last): {winners_candidates}")
 
-    def lock_next_rank(rem):
-        locked = []
-        for u in rem:
-            if is_locked_for_position(u, rem):
-                locked.append(u)
-        return locked
+    # Helper: given a list of candidates (assumed sorted descending by current score),
+    # return the contiguous block starting at the top, where we tie if the next candidate's
+    # best-case equals the top candidate's worst-case.
+    def contiguous_block(candidates):
+        if not candidates:
+            return []
+        block = [candidates[0]]
+        top_candidate = candidates[0]
+        _, top_wc = get_int_scores(top_candidate)
+        for candidate in candidates[1:]:
+            cand_bc, _ = get_int_scores(candidate)
+            if cand_bc == top_wc:
+                block.append(candidate)
+            else:
+                break
+        return block
 
-    def lock_next_last(rem):
-        locked = []
-        for u in rem:
-            if is_locked_for_last(u, rem):
-                locked.append(u)
-        return locked
+    locked_positions = {"1st": [], "2nd": [], "3rd": []}
+    remaining = winners_candidates[:]
 
-    # Lock sets
-    locked_1st = set()
-    locked_2nd = set()
-    locked_3rd = set()
+    # Lock 1st.
+    block1 = contiguous_block(remaining)
+    if len(block1) != 1:
+        # If 1st is tied (i.e. more than one candidate), then 2nd and 3rd are empty.
+        locked_positions["1st"] = block1
+        locked_positions["2nd"] = []
+        locked_positions["3rd"] = []
+    else:
+        locked_positions["1st"] = block1
+        remaining = remaining[len(block1):]
+        # Lock 2nd.
+        block2 = contiguous_block(remaining)
+        if len(block2) != 1:
+            locked_positions["2nd"] = block2
+            locked_positions["3rd"] = []
+        else:
+            locked_positions["2nd"] = block2
+            remaining = remaining[len(block2):]
+            # Lock 3rd.
+            block3 = contiguous_block(remaining)
+            locked_positions["3rd"] = block3
 
-    # 1) 1st
-    cand_1st = lock_next_rank(remaining_for_top)
-    if cand_1st:
-        locked_1st.update(cand_1st)
-        remaining_for_top = [u for u in remaining_for_top if u not in locked_1st]
+    logger.debug(f"Locked winners positions: {locked_positions}")
 
-    # 2) 2nd
-    cand_2nd = lock_next_rank(remaining_for_top)
-    if cand_2nd:
-        locked_2nd.update(cand_2nd)
-        remaining_for_top = [u for u in remaining_for_top if u not in locked_2nd]
-
-    # 3) 3rd
-    cand_3rd = lock_next_rank(remaining_for_top)
-    if cand_3rd:
-        locked_3rd.update(cand_3rd)
-        remaining_for_top = [u for u in remaining_for_top if u not in locked_3rd]
-
-    # Last
-    locked_last = set()
-    cand_last = lock_next_last(remaining_for_bottom)
-    if cand_last:
-        locked_last.update(cand_last)
-        remaining_for_bottom = [u for u in remaining_for_bottom if u not in locked_last]
-
-    # Format line: e.g. "<para align='center'><b>1st</b> - Name1 / Name2</para>"
-    def format_line(label, user_set):
-        if not user_set:
+    def format_line(label, user_list):
+        if not user_list:
             return f"<para align='center'><b>{label}</b> - TBD</para>"
-        names = sorted(user_set)
-        joined = " / ".join(names)
-        return f"<para align='center'><b>{label}</b> - {joined}</para>"
+        return f"<para align='center'><b>{label}</b> - {' / '.join(user_list)}</para>"
 
     lines = [
-        format_line("1st", locked_1st),
-        format_line("2nd", locked_2nd),
-        format_line("3rd", locked_3rd),
+        format_line("1st", locked_positions["1st"]),
+        format_line("2nd", locked_positions["2nd"]),
+        format_line("3rd", locked_positions["3rd"]),
         format_line("Last", locked_last),
     ]
 
+    story.append(Paragraph("<para align='center'><b>Winners</b></para>", styles['Heading2']))
     for ln in lines:
         story.append(Paragraph(ln, styles['Normal']))
-
     story.append(Spacer(1, 12))
 
 def generate_popularity_charts(story, styles, df, visible_rounds):
