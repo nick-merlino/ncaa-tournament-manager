@@ -10,11 +10,11 @@ It is structured in seven steps:
   3. Building the Bracket: (Used only for initial seeding.)
   4. (Active set logic removed in favor of dynamic matchups.)
   5. Regional Simulation of Future Rounds: Now builds matchups dynamically from entered games.
-  6. Interregional Simulation: Called exactly once after regional simulation.
+  6. Interregional Simulation: Now runs exactly once per user using new dynamic simulation functions.
   7. Final Score Calculation for Future Rounds: Implemented in calculate_worst_case_scores()
      and calculate_best_case_scores().
 
-Logging (prefixed with "[Morey Trace]") is output only if "Morey" appears in the username.
+Logging (prefixed with "[Daryl Morey Trace]") is output only if "Daryl Morey" appears in the username.
 """
 
 from pprint import pprint
@@ -236,14 +236,29 @@ def simulate_dynamic_bracket_worst(region_name, visible_by_region, player_pick_s
     
     Winners from the round are paired for the next round until one winner remains.
     
-    If the current round equals MAX_REGIONAL_ROUND and all games are entered,
-    the simulation stops and returns the entered champion.
+    NEW FIX:
+      If the Elite 8 (MAX_REGIONAL_ROUND) exists in the region and is complete,
+      immediately collapse the results and return the champion without adding bonus.
     
     Returns:
       (total_bonus, final_winner)
     """
     total_bonus = 0
     region_games = visible_by_region.get(region_name, {})
+    # --- NEW FIX: Check if Elite 8 exists and is complete ---
+    if MAX_REGIONAL_ROUND in region_games and region_games[MAX_REGIONAL_ROUND]:
+        if all(game.get("winner", "").strip() for game in region_games[MAX_REGIONAL_ROUND]):
+            finished_winners = [game.get("winner", "").strip() for game in region_games[MAX_REGIONAL_ROUND]]
+            while len(finished_winners) > 1:
+                new_list = []
+                for i in range(0, len(finished_winners), 2):
+                    if i+1 < len(finished_winners):
+                        new_list.append(finished_winners[i])
+                    else:
+                        new_list.append(finished_winners[i])
+                finished_winners = new_list
+            return total_bonus, finished_winners[0]
+    # --------------------------------------------------------
     current_games = region_games.get(current_round, [])
     current_matchups = []
     for game in current_games:
@@ -253,11 +268,10 @@ def simulate_dynamic_bracket_worst(region_name, visible_by_region, player_pick_s
             current_matchups.append((team1, team2))
     round_index = ROUND_ORDER.index(current_round)
     
-    # If at final regional round and all games are complete, collapse results.
+    # Fallback check: if current_games exist and are complete and we're at MAX_REGIONAL_ROUND.
     if current_games and all(game.get("winner", "").strip() for game in current_games):
         if ROUND_ORDER[round_index] == MAX_REGIONAL_ROUND:
             finished_winners = [game.get("winner", "").strip() for game in current_games]
-            # Deterministically pair winners until one remains.
             while len(finished_winners) > 1:
                 new_list = []
                 for i in range(0, len(finished_winners), 2):
@@ -290,8 +304,8 @@ def simulate_dynamic_bracket_worst(region_name, visible_by_region, player_pick_s
                     chosen = list(matchup)[0]
                     total_bonus += int(ROUND_WEIGHTS.get(round_name, 1))
             new_winners.append(chosen)
-            if username and "Morey" in username:
-                logger.info(f"[Morey Trace] (Worst) {round_name} matchup {matchup} => winner: {chosen}")
+            if username and "Daryl Morey" in username:
+                logger.info(f"[Daryl Morey Trace] (Worst) {round_name} matchup {matchup} => winner: {chosen}")
         if len(new_winners) < 2:
             final_winner = new_winners[0] if new_winners else None
             break
@@ -318,11 +332,28 @@ def simulate_dynamic_bracket_best_combined(region_name, visible_by_region, playe
     
     Winners are paired until one champion remains.
     
+    NEW FIX:
+      If the Elite 8 (MAX_REGIONAL_ROUND) exists and is complete, immediately return the champion without extra bonus.
+    
     Returns:
       (total_bonus, overall_winner)
     """
     total_bonus = 0
     region_games = visible_by_region.get(region_name, {})
+    # --- NEW FIX: Check for complete Elite 8 round ---
+    if MAX_REGIONAL_ROUND in region_games and region_games[MAX_REGIONAL_ROUND]:
+        if all(game.get("winner", "").strip() for game in region_games[MAX_REGIONAL_ROUND]):
+            finished_winners = [game.get("winner", "").strip() for game in region_games[MAX_REGIONAL_ROUND]]
+            while len(finished_winners) > 1:
+                new_list = []
+                for i in range(0, len(finished_winners), 2):
+                    if i+1 < len(finished_winners):
+                        new_list.append(finished_winners[i])
+                    else:
+                        new_list.append(finished_winners[i])
+                finished_winners = new_list
+            return total_bonus, finished_winners[0]
+    # -----------------------------------------------------
     current_games = region_games.get(current_round, [])
     current_matchups = []
     for game in current_games:
@@ -332,6 +363,20 @@ def simulate_dynamic_bracket_best_combined(region_name, visible_by_region, playe
             current_matchups.append((team1, team2))
     round_index = ROUND_ORDER.index(current_round)
     overall_winner = None
+
+    # Fallback check: if current_games exist and are complete and we're at MAX_REGIONAL_ROUND.
+    if current_games and all(game.get("winner", "").strip() for game in current_games):
+        if ROUND_ORDER[round_index] == MAX_REGIONAL_ROUND:
+            finished_winners = [game.get("winner", "").strip() for game in current_games]
+            while len(finished_winners) > 1:
+                new_list = []
+                for i in range(0, len(finished_winners), 2):
+                    if i+1 < len(finished_winners):
+                        new_list.append(finished_winners[i])
+                    else:
+                        new_list.append(finished_winners[i])
+                finished_winners = new_list
+            return total_bonus, finished_winners[0]
 
     while current_matchups:
         round_name = ROUND_ORDER[round_index]
@@ -353,8 +398,8 @@ def simulate_dynamic_bracket_best_combined(region_name, visible_by_region, playe
                 else:
                     chosen = list(matchup)[0]
             new_winners.append(chosen)
-            if username and "Morey" in username:
-                logger.info(f"[Morey Trace] (Best) {round_name} matchup {matchup} => winner: {chosen}")
+            if username and "Daryl Morey" in username:
+                logger.info(f"[Daryl Morey Trace] (Best) {round_name} matchup {matchup} => winner: {chosen}")
         if len(new_winners) < 2:
             overall_winner = new_winners[0] if new_winners else None
             break
@@ -370,27 +415,109 @@ def simulate_dynamic_bracket_best_combined(region_name, visible_by_region, playe
     return total_bonus, overall_winner
 
 # ---------------------------
-# Step 6: Interregional Simulation
+# Step 6: Dynamic Interregional Simulation (Refactored)
 # ---------------------------
-def simulate_interregional_bracket(regional_champs):
+def simulate_interregional_bracket_worst_dynamic(regional_champs, player_pick_set, username=None):
     """
-    Simulate the interregional bracket given the champions from each region.
-    
+    Simulate the interregional (Final Four/Championship) bracket in worst-case fashion.
+    Using the four regional champions, this function simulates the Final Four and Championship matchups:
+      - For each Final Four matchup:
+          * If one team is not in the player's picks, choose that team (no bonus).
+          * If both teams are in the player's picks, choose arbitrarily and award bonus points.
+      - The championship game is simulated similarly.
     Returns:
-      dict: { "Final Four": [tuple, tuple], "Championship": [tuple] }
+      (total_bonus, overall_champion)
     """
     regions = list(regional_champs.keys())
-    if len(regions) != 4:
-        logger.error("Interregional simulation requires exactly 4 regions.")
-        raise ValueError("Interregional simulation requires 4 regions.")
     final_four = [
         (regional_champs[regions[0]], regional_champs[regions[1]]),
         (regional_champs[regions[2]], regional_champs[regions[3]])
     ]
-    championship = [tuple(sorted(final_four[0] + final_four[1]))]
-    if "Morey" in "".join(regional_champs.values()):
-        logger.info(f"[Morey Trace] (Interregional) Final Four: {final_four}, Championship: {championship}")
-    return {"Final Four": final_four, "Championship": championship}
+    total_bonus = 0
+    ff_winners = []
+    for matchup in final_four:
+        if player_pick_set:
+            not_in = [team for team in matchup if team not in player_pick_set]
+            if not_in:
+                winner = not_in[0]
+                bonus = 0
+            else:
+                winner = matchup[0]
+                bonus = int(ROUND_WEIGHTS.get("Final Four", 1))
+        else:
+            winner = matchup[0]
+            bonus = 0
+        total_bonus += bonus
+        if username and "Daryl Morey" in username:
+            logger.info(f"[Daryl Morey Trace] (Worst) Interregional Final Four matchup {matchup} => winner: {winner} bonus: {bonus}")
+        ff_winners.append(winner)
+    championship_matchup = tuple(ff_winners)
+    if player_pick_set:
+        not_in = [team for team in championship_matchup if team not in player_pick_set]
+        if not_in:
+            champ_winner = not_in[0]
+            champ_bonus = 0
+        else:
+            champ_winner = championship_matchup[0]
+            champ_bonus = int(ROUND_WEIGHTS.get("Championship", 1))
+    else:
+        champ_winner = championship_matchup[0]
+        champ_bonus = 0
+    total_bonus += champ_bonus
+    if username and "Daryl Morey" in username:
+        logger.info(f"[Daryl Morey Trace] (Worst) Championship matchup {championship_matchup} => winner: {champ_winner} bonus: {champ_bonus}")
+    return total_bonus, champ_winner
+
+def simulate_interregional_bracket_best_dynamic(regional_champs, player_pick_set, username=None):
+    """
+    Simulate the interregional (Final Four/Championship) bracket in best-case fashion.
+    Using the four regional champions, this function simulates the Final Four and Championship matchups:
+      - For each Final Four matchup:
+          * If one or both teams are in the player's picks, choose a team from the picks and award bonus points.
+          * Otherwise, choose arbitrarily.
+      - The championship game is simulated similarly.
+    Returns:
+      (total_bonus, overall_champion)
+    """
+    regions = list(regional_champs.keys())
+    final_four = [
+        (regional_champs[regions[0]], regional_champs[regions[1]]),
+        (regional_champs[regions[2]], regional_champs[regions[3]])
+    ]
+    total_bonus = 0
+    ff_winners = []
+    for matchup in final_four:
+        if player_pick_set:
+            in_team = [team for team in matchup if team in player_pick_set]
+            if in_team:
+                winner = in_team[0]
+                bonus = int(ROUND_WEIGHTS.get("Final Four", 1))
+            else:
+                winner = matchup[0]
+                bonus = 0
+        else:
+            winner = matchup[0]
+            bonus = 0
+        total_bonus += bonus
+        if username and "Daryl Morey" in username:
+            logger.info(f"[Daryl Morey Trace] (Best) Interregional Final Four matchup {matchup} => winner: {winner} bonus: {bonus}")
+        ff_winners.append(winner)
+    championship_matchup = tuple(ff_winners)
+    if player_pick_set:
+        in_team = [team for team in championship_matchup if team in player_pick_set]
+        if in_team:
+            champ_winner = in_team[0]
+            champ_bonus = int(ROUND_WEIGHTS.get("Championship", 1))
+        else:
+            champ_winner = championship_matchup[0]
+            champ_bonus = 0
+    else:
+        champ_winner = championship_matchup[0]
+        champ_bonus = 0
+    total_bonus += champ_bonus
+    if username and "Daryl Morey" in username:
+        logger.info(f"[Daryl Morey Trace] (Best) Championship matchup {championship_matchup} => winner: {champ_winner} bonus: {champ_bonus}")
+    return total_bonus, champ_winner
 
 # ---------------------------
 # Step 7: Final Score Calculation for Future Rounds
@@ -400,7 +527,7 @@ def calculate_worst_case_scores():
     Calculates worst-case final scores for all users by combining:
       - Base score (from finished games)
       - Worst-case bonus from regional simulations
-      - Worst-case bonus from one interregional simulation (Final Four/Championship)
+      - Worst-case bonus from a single interregional simulation (Final Four/Championship)
     """
     with open("tournament_bracket.json", "r") as f:
         tournament_data = json.load(f)
@@ -426,25 +553,15 @@ def calculate_worst_case_scores():
                 bonus_total += bonus
                 if winner:
                     regional_winners[region_name] = winner
-                if user.full_name and "Morey" in user.full_name:
-                    logger.info(f"[Morey Trace] (Worst) Region {region_name}: bonus {bonus}, winner {winner}")
+                if user.full_name and "Daryl Morey" in user.full_name:
+                    logger.info(f"[Daryl Morey Trace] (Worst) Region {region_name}: bonus {bonus}, winner {winner}")
             # Interregional simulation phase: run once for all four regional champions.
             inter_bonus = 0
             if len(regional_winners) == 4:
-                inter = simulate_interregional_bracket(regional_winners)
-                # Simulate interregional matchups worst-case.
-                # Here, award bonus only if an entire matchup is comprised solely of player's picks.
-                ff_bonuses = []
-                for matchup in inter["Final Four"]:
-                    player_in = set(matchup).intersection(player_pick_set) if player_pick_set else set()
-                    bonus_val = int(ROUND_WEIGHTS.get("Final Four", 1)) if set(matchup) == player_in else 0
-                    ff_bonuses.append(bonus_val)
-                    if user.full_name and "Morey" in user.full_name:
-                        logger.info(f"[Morey Trace] (Worst) Interregional matchup {matchup} bonus: {bonus_val}")
-                inter_bonus = min(ff_bonuses) if ff_bonuses else 0
+                inter_bonus, _ = simulate_interregional_bracket_worst_dynamic(regional_winners, player_pick_set, username=user.full_name)
             worst_scores[user.full_name] = base_score + bonus_total + inter_bonus
-            if user.full_name and "Morey" in user.full_name:
-                logger.info(f"[Morey Trace] (Worst) Final score for {user.full_name}: base {base_score} + bonus {bonus_total + inter_bonus}")
+            if user.full_name and "Daryl Morey" in user.full_name:
+                logger.info(f"[Daryl Morey Trace] (Worst) Final score for {user.full_name}: base {base_score} + bonus {bonus_total + inter_bonus}")
         return worst_scores
     except Exception as e:
         logger.error(f"Error calculating worst-case scores: {e}")
@@ -459,7 +576,7 @@ def calculate_best_case_scores():
     Calculates best-case final scores for all users by combining:
       - Base score (from finished games)
       - Best-case bonus from regional simulations
-      - Best-case bonus from one interregional simulation (Final Four/Championship)
+      - Best-case bonus from a single interregional simulation (Final Four/Championship)
     
     For each region, the combined best-case simulation is run only once.
     """
@@ -486,34 +603,15 @@ def calculate_best_case_scores():
                 )
                 overall_regional_winners[region_name] = winner
                 player_regional_bonus += bonus
-                if user.full_name and "Morey" in user.full_name:
-                    logger.info(f"[Morey Trace] (Best) Region {region_name}: bonus {bonus}, winner {winner}")
+                if user.full_name and "Daryl Morey" in user.full_name:
+                    logger.info(f"[Daryl Morey Trace] (Best) Region {region_name}: bonus {bonus}, winner {winner}")
             player_interregional_bonus = 0
             # Interregional simulation phase for best-case.
             if len(overall_regional_winners) == 4:
-                inter = simulate_interregional_bracket(overall_regional_winners)
-                ff_bonus = 0
-                for matchup in inter["Final Four"]:
-                    candidate = set(matchup).intersection(player_pick_set) if player_pick_set else set()
-                    if candidate:
-                        ff_bonus += int(ROUND_WEIGHTS.get("Final Four", 1))
-                    else:
-                        ff_bonus += 0
-                    if user.full_name and "Morey" in user.full_name:
-                        logger.info(f"[Morey Trace] (Best) Interregional matchup {matchup} bonus: {int(ROUND_WEIGHTS.get('Final Four', 1)) if candidate else 0}")
-                champ_bonus = 0
-                for matchup in inter["Championship"]:
-                    candidate = set(matchup).intersection(player_pick_set) if player_pick_set else set()
-                    if candidate:
-                        champ_bonus += int(ROUND_WEIGHTS.get("Championship", 1))
-                    else:
-                        champ_bonus += 0
-                    if user.full_name and "Morey" in user.full_name:
-                        logger.info(f"[Morey Trace] (Best) Championship matchup {matchup} bonus: {int(ROUND_WEIGHTS.get('Championship', 1)) if candidate else 0}")
-                player_interregional_bonus = ff_bonus + champ_bonus
+                player_interregional_bonus, _ = simulate_interregional_bracket_best_dynamic(overall_regional_winners, player_pick_set, username=user.full_name)
             best_scores[user.full_name] = base_score + player_regional_bonus + player_interregional_bonus
-            if user.full_name and "Morey" in user.full_name:
-                logger.info(f"[Morey Trace] (Best) Final score for {user.full_name}: base {base_score} + bonus {player_regional_bonus + player_interregional_bonus}")
+            if user.full_name and "Daryl Morey" in user.full_name:
+                logger.info(f"[Daryl Morey Trace] (Best) Final score for {user.full_name}: base {base_score} + bonus {player_regional_bonus + player_interregional_bonus}")
         return best_scores
     except Exception as e:
         logger.error(f"Error calculating best-case scores: {e}")
