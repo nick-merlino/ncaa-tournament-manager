@@ -36,9 +36,20 @@ from constants import ROUND_ORDER, ROUND_WEIGHTS, FIRST_ROUND_PAIRINGS
 from scoring import (
     get_round_game_status,
     calculate_best_case_scores,
-    calculate_worst_case_scores,
-    calculate_maximum_possible_score
+    calculate_worst_case_scores
 )
+
+
+def calculate_maximum_possible_score():
+    """
+    Calculates the theoretical maximum score a player can achieve under the one-team-per-seed rule.
+    """
+    multipliers = [16, 16, 8, 4, 2, 1]
+    max_score = 0
+    for i, round_name in enumerate(ROUND_ORDER):
+        weight = ROUND_WEIGHTS.get(round_name, 1)
+        max_score += weight * multipliers[i]
+    return max_score
 
 
 def fig_to_image(fig):
@@ -212,109 +223,83 @@ def generate_locked_positions_section(
     worst_case_scores
 ):
     """
-    Displays locked positions for 1st, 2nd, 3rd, and Last.
-
-    Winners (1st, 2nd, 3rd) are determined as follows:
-      - First, remove any candidate locked for Last from consideration.
-      - Then, from the remaining candidates (assumed sorted descending by current score),
-        form a contiguous block for 1st using a helper:
-          • If that block contains exactly 1 candidate, that candidate is locked for 1st.
-          • Otherwise, if it contains more than 1, the entire block is tied for 1st and 2nd and 3rd are empty.
-      - If 1st is uniquely determined, remove that candidate and form the block for 2nd.
-          • If that block contains exactly 1 candidate, that candidate is locked for 2nd.
-          • Otherwise, if it contains more than 1, the entire block is tied for 2nd and 3rd is empty.
-      - If 2nd is uniquely determined, remove that candidate and form the block for 3rd.
-    For Last, a contiguous block is formed from the reversed sorted list using a similar tie condition.
+    Displays locked positions for 1st, 2nd, 3rd, and Last based on the following logic:
+    
+    For 1st, 2nd, and 3rd:
+      - Among the remaining candidates, a candidate is locked for that position if his/her worst-case score 
+        is greater than or equal to every other candidate's best-case score.
+      - If one candidate meets this condition, they are locked alone.
+      - If 2 or 3 candidates meet the condition, they are all locked together (separated by '/').
+      - Once a position is locked, those candidates are removed from consideration for lower positions.
+    
+    For Last:
+      - Among the candidates (taken in reverse order of sorted_users), a candidate is locked for last 
+        if his/her best-case score is less than or equal to every other candidate's worst-case score.
+      - Up to 3 candidates meeting this condition are locked for Last.
     """
     from reportlab.platypus import Paragraph, Spacer
-    from config import logger
 
     # Build a lookup for current scores.
     current_scores = {row['username']: row['points'] for _, row in user_points_df.iterrows()}
 
-    def get_int_scores(u):
-        # Returns (best_case, worst_case) as integers.
-        bc = int(round(float(best_case_scores.get(u, current_scores[u]))))
-        wc = int(round(float(worst_case_scores.get(u, current_scores[u]))))
-        return bc, wc
+    # For winners positions (1st, 2nd, 3rd) we define a helper that locks candidates from a given group.
+    def is_locked_for_position(u, group):
+        # u is locked if, for every other candidate in group, u's worst-case >= their best-case.
+        u_wc = worst_case_scores.get(u, current_scores[u])
+        for other in group:
+            if other == u:
+                continue
+            o_bc = best_case_scores.get(other, current_scores[other])
+            if o_bc > u_wc:
+                return False
+        return True
 
-    # First, compute locked for Last.
-    # Process the reverse of sorted_users.
-    reverse_candidates = list(reversed(sorted_users))
-    locked_last = []
-    if reverse_candidates:
-        block = [reverse_candidates[0]]
-        # For last, we consider the contiguous block if the next candidate's worst-case equals
-        # the top candidate's best-case.
-        top_candidate = reverse_candidates[0]
-        top_bc, _ = get_int_scores(top_candidate)
-        for candidate in reverse_candidates[1:]:
-            cand_bc, cand_wc = get_int_scores(candidate)
-            if cand_wc == top_bc:
-                block.append(candidate)
-            else:
-                break
-        locked_last = block
-    logger.debug(f"Locked last: {locked_last}")
+    def lock_next_position(group):
+        # Return candidates locked for this position from group.
+        locked = [u for u in group if is_locked_for_position(u, group)]
+        # If more than 3 are locked, we cap the group at 3 (using alphabetical order as tie-breaker)
+        return sorted(locked)[:3] if locked else []
 
-    # Exclude locked_last from winners.
-    winners_candidates = [u for u in sorted_users if u not in locked_last]
-    logger.debug(f"Winners candidates (excluding last): {winners_candidates}")
+    # For the winners positions, we remove locked candidates as we move down.
+    remaining_for_winners = sorted_users[:]  # assume sorted by current score descending
+    locked_1st = lock_next_position(remaining_for_winners)
+    remaining_for_winners = [u for u in remaining_for_winners if u not in locked_1st]
+    locked_2nd = lock_next_position(remaining_for_winners)
+    remaining_for_winners = [u for u in remaining_for_winners if u not in locked_2nd]
+    locked_3rd = lock_next_position(remaining_for_winners)
+    # We don't remove further for 3rd since that's the last winner position.
 
-    # Helper: given a list of candidates (assumed sorted descending by current score),
-    # return the contiguous block starting at the top, where we tie if the next candidate's
-    # best-case equals the top candidate's worst-case.
-    def contiguous_block(candidates):
-        if not candidates:
-            return []
-        block = [candidates[0]]
-        top_candidate = candidates[0]
-        _, top_wc = get_int_scores(top_candidate)
-        for candidate in candidates[1:]:
-            cand_bc, _ = get_int_scores(candidate)
-            if cand_bc == top_wc:
-                block.append(candidate)
-            else:
-                break
-        return block
+    # For last position, we work from the bottom.
+    remaining_for_last = list(reversed(sorted_users))  # lowest first
+    def is_locked_for_last(u, group):
+        # u is locked for last if for every other candidate in group, u's best-case <= their worst-case.
+        u_bc = best_case_scores.get(u, current_scores[u])
+        for other in group:
+            if other == u:
+                continue
+            o_wc = worst_case_scores.get(other, current_scores[other])
+            if o_wc < u_bc:
+                return False
+        return True
 
-    locked_positions = {"1st": [], "2nd": [], "3rd": []}
-    remaining = winners_candidates[:]
+    def lock_last_position(group):
+        locked = [u for u in group if is_locked_for_last(u, group)]
+        return sorted(locked)[:3] if locked else []
 
-    # Lock 1st.
-    block1 = contiguous_block(remaining)
-    if len(block1) != 1:
-        # If 1st is tied (i.e. more than one candidate), then 2nd and 3rd are empty.
-        locked_positions["1st"] = block1
-        locked_positions["2nd"] = []
-        locked_positions["3rd"] = []
-    else:
-        locked_positions["1st"] = block1
-        remaining = remaining[len(block1):]
-        # Lock 2nd.
-        block2 = contiguous_block(remaining)
-        if len(block2) != 1:
-            locked_positions["2nd"] = block2
-            locked_positions["3rd"] = []
-        else:
-            locked_positions["2nd"] = block2
-            remaining = remaining[len(block2):]
-            # Lock 3rd.
-            block3 = contiguous_block(remaining)
-            locked_positions["3rd"] = block3
-
-    logger.debug(f"Locked winners positions: {locked_positions}")
+    locked_last = lock_last_position(remaining_for_last)
 
     def format_line(label, user_list):
         if not user_list:
             return f"<para align='center'><b>{label}</b> - TBD</para>"
-        return f"<para align='center'><b>{label}</b> - {' / '.join(user_list)}</para>"
+        # Join names with '/'
+        return f"<para align='center'><b>{label}</b> - {' / '.join(sorted(user_list))}</para>"
 
+    # Build the output lines.
     lines = [
-        format_line("1st", locked_positions["1st"]),
-        format_line("2nd", locked_positions["2nd"]),
-        format_line("3rd", locked_positions["3rd"]),
-        format_line("Last", locked_last),
+        format_line("1st", locked_1st),
+        format_line("2nd", locked_2nd),
+        format_line("3rd", locked_3rd),
+        format_line("Last", locked_last)
     ]
 
     story.append(Paragraph("<para align='center'><b>Winners</b></para>", styles['Heading2']))
@@ -599,7 +584,7 @@ def generate_upsets_table(story, styles):
         logger.error(f"Error generating upsets table: {e}")
 
 
-def generate_potential_score_table(story, styles, user_points_df, sorted_users):
+def generate_potential_score_table(story, styles, user_points_df, sorted_users, best_case_scores, worst_case_scores):
     """
     Generates a table showing, for each user:
       - Rank
@@ -616,10 +601,7 @@ def generate_potential_score_table(story, styles, user_points_df, sorted_users):
     The table is sorted by best-case score descending, then current, then guaranteed, then potential, then name.
     """
     try:
-        best_case_scores = calculate_best_case_scores()
-        worst_case_scores = calculate_worst_case_scores()
-
-        # Build dict of current scores
+        # Build dict of current scores.
         current_scores = {}
         if not user_points_df.empty:
             for _, row in user_points_df.iterrows():
@@ -782,7 +764,7 @@ def generate_report(pdf_path, pdf_filename):
             current_round = ROUND_ORDER[0]
 
         # --------------------------------------------------
-        # 3) Compute best/worst case scenarios
+        # 3) Compute best/worst case scenarios once
         # --------------------------------------------------
         best_case_scores = calculate_best_case_scores()
         worst_case_scores = calculate_worst_case_scores()
@@ -810,7 +792,8 @@ def generate_report(pdf_path, pdf_filename):
         generate_popularity_charts(story, styles, df, visible_rounds)
         generate_player_points_chart(story, styles, user_points_df)
         generate_upsets_table(story, styles)
-        generate_potential_score_table(story, styles, user_points_df, sorted_users)
+        # Pass best/worst scores into the potential score table to avoid duplicate calculations.
+        generate_potential_score_table(story, styles, user_points_df, sorted_users, best_case_scores, worst_case_scores)
 
     except Exception as e:
         logger.error(f"Error generating report: {e}")
