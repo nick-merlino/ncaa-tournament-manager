@@ -7,15 +7,14 @@ It is structured in seven steps:
   1. Base Score Calculation: Fully implemented in calculate_scoring().
   2. Determining the Current Tournament State: Implemented via get_round_game_status() 
      and get_round_game_status_by_region().
-  3. Building the Bracket: Implemented in build_regional_bracket().
-  4. Determining the Active Set: Implemented in get_active_set().
-  5. Regional Simulation of Future Rounds: Implemented in simulate_round_worst,
-     simulate_round_best, simulate_bracket_worst_case_region, and simulate_bracket_best_case_region.
+  3. Building the Bracket: (Used only for initial seeding.)
+  4. (Active set logic removed in favor of dynamic matchups.)
+  5. Regional Simulation of Future Rounds: Now builds matchups dynamically from entered games.
   6. Interregional Simulation: Implemented in simulate_interregional_bracket().
   7. Final Score Calculation for Future Rounds: Implemented in calculate_worst_case_scores()
      and calculate_best_case_scores().
 
-Logging (prefixed with "[Jody Trace]") is output only if "Jody" appears in the username.
+Logging (prefixed with "[Christine Trace]") is output only if "Christine" appears in the username.
 """
 
 from pprint import pprint
@@ -177,16 +176,17 @@ def get_round_game_status_by_region():
         session.close()
 
 # ---------------------------
-# Step 3: Building the Bracket
+# Step 3: Building the Bracket (For initial seeding)
 # ---------------------------
 def build_regional_bracket(region):
     """
     Builds the tournament bracket for a given region.
+    This function is used for seeding purposes.
     
     Process:
       1. Map each seed to its team name.
       2. Generate the Round of 64 using FIRST_ROUND_PAIRINGS.
-      3. Iteratively build subsequent rounds (e.g., Round of 32, Sweet 16, Elite 8) by pairing the previous round's matchups.
+      3. Iteratively build subsequent rounds by pairing winners.
     
     Returns:
       A dictionary with round names as keys and lists of matchup tuples as values.
@@ -223,241 +223,137 @@ def build_regional_bracket(region):
     return bracket
 
 # ---------------------------
-# Step 4: Determining the Active Set
+# Step 5: Dynamic Regional Simulation of Future Rounds
 # ---------------------------
-def get_active_set(region, visible_by_region):
+def simulate_dynamic_bracket_worst(region_name, visible_by_region, player_pick_set, current_round, username=None):
     """
-    For a given region, return the set of teams still in contention based on finished and partially finished rounds.
-    
-    If a round is fully complete, the active set becomes the winners of that round.
-    If a round is partially complete, the active set is the union of winners (if available) and both teams for unfinished games.
-    """
-    region_visible = visible_by_region.get(region, {})
-    active = set()
-    for r in ROUND_ORDER:
-        if r not in region_visible:
-            break
-        games = region_visible[r]
-        if games and all(game.get("winner") for game in games):
-            active = {game["winner"].strip() for game in games}
-        else:
-            for game in games:
-                if game.get("winner"):
-                    active.add(game["winner"].strip())
-                else:
-                    active.add(game.get("team1", "").strip())
-                    active.add(game.get("team2", "").strip())
-            break
-    return active
-
-# ---------------------------
-# Step 5: Regional Simulation of Future Rounds
-# ---------------------------
-def find_finished_winner(matchup, finished_games):
-    """
-    Given a matchup (a tuple or list of team names) and a list of finished game dictionaries,
-    returns the winner from the finished game that matches the matchup. The matchup is considered
-    a match if the set of teams in the finished game equals the set of teams in the matchup.
-    """
-    matchup_set = set(matchup)
-    for game in finished_games:
-        game_set = {game.get("team1", "").strip(), game.get("team2", "").strip()}
-        if matchup_set == game_set:
-            winner = game.get("winner", "").strip()
-            if winner:
-                return winner
-    return None
-
-def simulate_round_best(matchups, active_set, round_name, finished_games=None, username=None, player_pick_set=None):
-    """
-    Simulate one round under best-case assumptions.
+    Simulate the remaining rounds in a region under worst-case assumptions dynamically.
+    Starting from the current round’s entered games, each matchup is a pair of teams.
     
     For each matchup:
-      - If a finished game result exists in finished_games, use it.
-      - Otherwise, if there is a team in the matchup that is in the overall active set and also in the player's picks,
-        choose one arbitrarily from that triple intersection and award bonus points.
-      - If no such team exists, then check if there is any team in the matchup that is in the overall active set.
-        If so, choose one (no bonus, since it’s not in the player's picks).
-      - Otherwise, choose arbitrarily from the matchup.
+      - If the game is finished (its 'winner' field is non-empty), that winner is used.
+      - Otherwise, if one team is not in the player's picks, choose that team to force a loss.
+      - If both teams are in the player's picks, choose arbitrarily and award bonus points.
     
-    Bonus points (based on ROUND_WEIGHTS) are awarded only if the winning team is:
-      (a) in the matchup,
-      (b) in the overall active set, and
-      (c) in the player's picks.
+    Winners from the round are paired (in order) for the next round until one winner remains.
     
     Returns:
-      A tuple (propagated_winner, round_bonus, winners).
+      (total_bonus, final_winner)
     """
-    round_bonus = 0
-    winners = []
-    for matchup in matchups:
-        # Use finished game result if available.
-        if finished_games:
-            winner = find_finished_winner(matchup, finished_games)
-            if winner:
-                winners.append(winner)
-                continue
-
-        # Determine candidate teams that are in the matchup, in the overall active set, and in the player's picks.
-        candidate = set(matchup).intersection(active_set).intersection(player_pick_set) if player_pick_set else set()
-        if candidate:
-            chosen = list(candidate)[0]
-            round_bonus += int(ROUND_WEIGHTS.get(round_name, 1))
-            if username and "Jody" in username:
-                logger.info(f"[Jody Trace] (Best) Player's team {chosen} (in active set and matchup {matchup}) wins, awarding bonus {ROUND_WEIGHTS.get(round_name, 1)}")
-        else:
-            # Fallback: choose from teams in the matchup that are in the overall active set.
-            candidate_active = set(matchup).intersection(active_set)
-            if candidate_active:
-                chosen = list(candidate_active)[0]
-                if username and "Jody" in username:
-                    logger.info(f"[Jody Trace] (Best) Active team {chosen} wins matchup {matchup} but is not in player's picks; no bonus awarded")
-            else:
-                chosen = list(matchup)[0]
-                if username and "Jody" in username:
-                    logger.info(f"[Jody Trace] (Best) No active team in matchup {matchup}; arbitrarily choosing: {chosen}")
-        winners.append(chosen)
-    propagated = winners[0] if winners else None
-    return propagated, round_bonus, winners
-def simulate_round_worst(matchups, active_set, round_name, finished_games=None, username=None, player_pick_set=None):
-    """
-    Simulate one round under worst-case assumptions.
-
-    For each matchup:
-      - If a finished game result exists in finished_games, use it.
-      - Otherwise, determine the set of active teams in the matchup ('inter')
-        and the subset of those that the player picked ('player_inter').
-      - If there exists any active team that the player did NOT pick,
-        choose one from that set (forcing a loss, no bonus).
-      - Otherwise, if all active teams in the matchup are the player's teams,
-        choose one (and award bonus points, since the player's team must progress).
-      - If no active team is present in the matchup, choose arbitrarily.
-    
-    In worst-case simulation bonus points are only added when the matchup is
-    entirely composed of the player's teams.
-    
-    Returns:
-      A tuple (propagated_winner, round_bonus, winners)
-    """
-    round_bonus = 0  # Default bonus is 0 unless all active teams are player's.
-    winners = []
-    for matchup in matchups:
-        # Use finished game result if available.
-        if finished_games:
-            winner = find_finished_winner(matchup, finished_games)
-            if winner:
-                winners.append(winner)
-                continue
-
-        # Determine active teams from the matchup.
-        inter = set(matchup).intersection(active_set)
-        # Determine which of these active teams are in the player's picks.
-        player_inter = set(matchup).intersection(player_pick_set) if player_pick_set else set()
-
-        # If any active team is NOT a player's team, choose that to force a loss.
-        non_player_candidates = inter - player_inter
-        if non_player_candidates:
-            chosen = list(non_player_candidates)[0]
-            if username and "Jody" in username:
-                logger.info(f"[Jody Trace] (Worst) In matchup {matchup}, choosing non-player team: {chosen}")
-        elif inter:
-            # All active teams in the matchup are player's teams.
-            chosen = list(inter)[0]
-            round_bonus += int(ROUND_WEIGHTS.get(round_name, 1))
-            if username and "Jody" in username:
-                logger.info(f"[Jody Trace] (Worst) In matchup {matchup}, only player's teams available; choosing {chosen} and awarding bonus {ROUND_WEIGHTS.get(round_name, 1)}")
-        else:
-            # No active team present; choose arbitrarily.
-            chosen = list(matchup)[0]
-            if username and "Jody" in username:
-                logger.info(f"[Jody Trace] (Worst) No active team in matchup {matchup}; arbitrarily choosing: {chosen}")
-        winners.append(chosen)
-    propagated = winners[0] if winners else None
-    return propagated, round_bonus, winners
-
-
-def simulate_bracket_worst_case_region(region, bracket, player_pick_set, visible_by_region, current_round, username=None):
-    """
-    Simulate the remaining rounds in a region under worst-case assumptions.
-
-    The simulation uses the overall active set from finished rounds and, for each round,
-    attempts to force a loss for the player by selecting an active team not picked by the player.
-    However, if in any matchup all active teams belong to the player (i.e. the player has both teams),
-    then one of those is chosen and bonus points are awarded.
-    
-    Returns:
-      (total_bonus, final_survivor)
-    """
-    # Get the active set for the region.
-    active_set = get_active_set(region, visible_by_region)
-    if username and "Jody" in username:
-        logger.info(f"[Jody Trace] (Worst Bracket - {region}) Starting active_set: {active_set}")
-    total_bonus = 0  # Worst-case bonus starts at 0.
-    final_survivor = None
-    start_index = ROUND_ORDER.index(current_round)
-    for r in ROUND_ORDER[start_index:]:
-        if r not in bracket:
-            continue
-        matchups = bracket[r]
-        finished_games = visible_by_region.get(region, {}).get(r, [])
-        propagated, bonus, winners = simulate_round_worst(matchups, active_set, r, finished_games, username, player_pick_set=player_pick_set)
-        total_bonus += bonus  # bonus is only added when the player's teams cover the matchup.
-        final_survivor = propagated
-        if username and "Jody" in username:
-            logger.info(f"[Jody Trace] (Worst Bracket - {region}) After round {r}, winners: {winners}")
-        # Update active_set to be the winners for the next round.
-        active_set = set(winners)
-        if username and "Jody" in username:
-            logger.info(f"[Jody Trace] (Worst Bracket - {region}) After round {r}, active_set: {active_set}, cumulative bonus: {total_bonus}")
-    return total_bonus, final_survivor
-
-
-
-def simulate_bracket_best_case_region(region, bracket, player_pick_set, visible_by_region, current_round, username=None, simulate_overall=False):
-    """
-    Simulate the remaining rounds in a region under best-case assumptions.
-    
-    If simulate_overall is True, the simulation uses the overall active set (ignoring player's picks)
-    to determine the regional winner.
-    If simulate_overall is False, the simulation filters the active set by player's picks.
-    
-    Bonus points are only awarded in a matchup if the winning team is in player_pick_set.
-    
-    Returns:
-      (total_bonus, final_survivor)
-    """
-    active_set = get_active_set(region, visible_by_region)
-    if not simulate_overall:
-        active_set = active_set.intersection(player_pick_set)
-    
-    if not active_set:
-        if username and "Jody" in username:
-            logger.info(f"[Jody Trace] (Best Bracket - {region}) No active teams available. Skipping simulation.")
-        return 0, None
-    
-    if username and "Jody" in username:
-        logger.info(f"[Jody Trace] (Best Bracket - {region}) Starting active_set: {active_set}")
     total_bonus = 0
-    final_survivor = None
-    start_index = ROUND_ORDER.index(current_round)
-    for r in ROUND_ORDER[start_index:]:
-        if r not in bracket:
-            continue
-        matchups = bracket[r]
-        finished_games = visible_by_region.get(region, {}).get(r, [])
-        propagated, bonus, winners = simulate_round_best(matchups, active_set, r, finished_games, username, player_pick_set=player_pick_set)
-        total_bonus += bonus
-        final_survivor = propagated
-        if username and "Jody" in username:
-            logger.info(f"[Jody Trace] (Best Bracket - {region}) After round {r}, winners: {winners}")
-        active_set = set(winners)
-        if not simulate_overall:
-            active_set = active_set.intersection(player_pick_set)
-        if username and "Jody" in username:
-            logger.info(f"[Jody Trace] (Best Bracket - {region}) After round {r}, active_set: {active_set}, cumulative bonus: {total_bonus}")
-    return total_bonus, final_survivor
+    region_games = visible_by_region.get(region_name, {})
+    current_games = region_games.get(current_round, [])
+    # Build matchups from entered games (each game should have exactly two teams).
+    current_matchups = []
+    for game in current_games:
+        team1 = game.get("team1", "").strip()
+        team2 = game.get("team2", "").strip()
+        if team1 and team2:
+            current_matchups.append((team1, team2))
+    round_index = ROUND_ORDER.index(current_round)
+    final_winner = None
 
+    while current_matchups:
+        round_name = ROUND_ORDER[round_index]
+        new_winners = []
+        for matchup in current_matchups:
+            # Look for a finished game matching this matchup.
+            finished_result = None
+            for game in current_games:
+                game_matchup = (game.get("team1", "").strip(), game.get("team2", "").strip())
+                if set(game_matchup) == set(matchup) and game.get("winner", "").strip():
+                    finished_result = game.get("winner", "").strip()
+                    break
+            if finished_result:
+                chosen = finished_result
+            else:
+                # Worst-case: force a loss by choosing the team not in player's picks if possible.
+                player_in = set(matchup).intersection(player_pick_set) if player_pick_set else set()
+                non_player = set(matchup) - player_in
+                if non_player:
+                    chosen = list(non_player)[0]
+                else:
+                    chosen = list(matchup)[0]
+                    total_bonus += int(ROUND_WEIGHTS.get(round_name, 1))
+            new_winners.append(chosen)
+            if username and "Christine" in username:
+                logger.info(f"[Christine Trace] (Worst) {round_name} matchup {matchup} => winner: {chosen}")
+        if len(new_winners) < 2:
+            final_winner = new_winners[0] if new_winners else None
+            break
+        next_matchups = []
+        for i in range(0, len(new_winners), 2):
+            if i+1 < len(new_winners):
+                next_matchups.append((new_winners[i], new_winners[i+1]))
+        current_matchups = next_matchups
+        current_games = []  # Future rounds have no entered results.
+        round_index += 1
+        final_winner = new_winners[0] if new_winners else None
 
+    return total_bonus, final_winner
+
+def simulate_dynamic_bracket_best_combined(region_name, visible_by_region, player_pick_set, current_round, username=None):
+    """
+    Combined simulation for best-case in a region that returns both the overall winner and the bonus.
+    Starting from the current round’s entered games, each matchup is a pair of teams.
+    
+    For each matchup:
+      - If the game is finished, that winner is used.
+      - Otherwise, if one team is in the player's picks, choose that team (and award bonus points).
+      - If neither is in the player's picks, choose arbitrarily.
+    
+    Winners from the round are paired for the next round until one winner remains.
+    
+    Returns:
+      (total_bonus, overall_winner)
+    """
+    total_bonus = 0
+    region_games = visible_by_region.get(region_name, {})
+    current_games = region_games.get(current_round, [])
+    current_matchups = []
+    for game in current_games:
+        team1 = game.get("team1", "").strip()
+        team2 = game.get("team2", "").strip()
+        if team1 and team2:
+            current_matchups.append((team1, team2))
+    round_index = ROUND_ORDER.index(current_round)
+    overall_winner = None
+
+    while current_matchups:
+        round_name = ROUND_ORDER[round_index]
+        new_winners = []
+        for matchup in current_matchups:
+            finished_result = None
+            for game in current_games:
+                game_matchup = (game.get("team1", "").strip(), game.get("team2", "").strip())
+                if set(game_matchup) == set(matchup) and game.get("winner", "").strip():
+                    finished_result = game.get("winner", "").strip()
+                    break
+            if finished_result:
+                chosen = finished_result
+            else:
+                candidate = set(matchup).intersection(player_pick_set) if player_pick_set else set()
+                if candidate:
+                    chosen = list(candidate)[0]
+                    total_bonus += int(ROUND_WEIGHTS.get(round_name, 1))
+                else:
+                    chosen = list(matchup)[0]
+            new_winners.append(chosen)
+            if username and "Christine" in username:
+                logger.info(f"[Christine Trace] (Best) {round_name} matchup {matchup} => winner: {chosen}")
+        if len(new_winners) < 2:
+            overall_winner = new_winners[0] if new_winners else None
+            break
+        next_matchups = []
+        for i in range(0, len(new_winners), 2):
+            if i+1 < len(new_winners):
+                next_matchups.append((new_winners[i], new_winners[i+1]))
+        current_matchups = next_matchups
+        current_games = []  # No entered games in future rounds.
+        round_index += 1
+        overall_winner = new_winners[0] if new_winners else None
+
+    return total_bonus, overall_winner
 
 # ---------------------------
 # Step 6: Interregional Simulation
@@ -478,8 +374,8 @@ def simulate_interregional_bracket(regional_champs):
         (regional_champs[regions[2]], regional_champs[regions[3]])
     ]
     championship = [tuple(sorted(final_four[0] + final_four[1]))]
-    if "Jody" in "".join(regional_champs.values()):
-        logger.info(f"[Jody Trace] (Interregional) Final Four: {final_four}, Championship: {championship}")
+    if "Christine" in "".join(regional_champs.values()):
+        logger.info(f"[Christine Trace] (Interregional) Final Four: {final_four}, Championship: {championship}")
     return {"Final Four": final_four, "Championship": championship}
 
 # ---------------------------
@@ -506,26 +402,35 @@ def calculate_worst_case_scores():
             bonus_total = 0
             for region in regions:
                 region_name = region.get("region_name", "Unknown")
-                bracket = build_regional_bracket(region)
                 current_round = current_by_region.get(region_name, ROUND_ORDER[0])
-                bonus, winner = simulate_bracket_worst_case_region(region_name, bracket, player_pick_set, visible_by_region, current_round, username=user.full_name)
+                bonus, winner = simulate_dynamic_bracket_worst(
+                    region_name, visible_by_region, player_pick_set, current_round, username=user.full_name
+                )
                 bonus_total += bonus
                 if winner:
                     regional_winners[region_name] = winner
-                if user.full_name and "Jody" in user.full_name:
-                    logger.info(f"[Jody Trace] (Worst) Region {region_name}: bonus {bonus}, winner {winner}")
-            # For simplicity, assume surviving regions are the raw winners.
+                if user.full_name and "Christine" in user.full_name:
+                    logger.info(f"[Christine Trace] (Worst) Region {region_name}: bonus {bonus}, winner {winner}")
+            # Interregional simulation: if four regions have winners, simulate Final Four.
             if len(regional_winners) == 4:
                 inter = simulate_interregional_bracket(regional_winners)
                 current_global_round, global_visible = get_round_game_status()
-                ff_finished_games = global_visible.get("Final Four", [])
-                ff_survivor, ff_bonus, _ = simulate_round_worst(inter["Final Four"], player_pick_set, "Final Four", finished_games=ff_finished_games, username=user.full_name)
+                ff_bonus = 0
+                for matchup in inter["Final Four"]:
+                    # Worst-case for interregional: choose team not in player's picks if possible.
+                    player_in = set(matchup).intersection(player_pick_set) if player_pick_set else set()
+                    non_player = set(matchup) - player_in
+                    if non_player:
+                        chosen = list(non_player)[0]
+                    else:
+                        chosen = list(matchup)[0]
+                        ff_bonus += int(ROUND_WEIGHTS.get("Final Four", 1))
+                    if user.full_name and "Christine" in user.full_name:
+                        logger.info(f"[Christine Trace] (Worst) Interregional matchup {matchup} => winner: {chosen}")
                 bonus_total += ff_bonus
-                if user.full_name and "Jody" in user.full_name:
-                    logger.info(f"[Jody Trace] (Worst) Interregional: bonus {ff_bonus}, FF survivor {ff_survivor}")
             worst_scores[user.full_name] = base_score + bonus_total
-            if user.full_name and "Jody" in user.full_name:
-                logger.info(f"[Jody Trace] (Worst) Final score for {user.full_name}: base {base_score} + bonus {bonus_total}")
+            if user.full_name and "Christine" in user.full_name:
+                logger.info(f"[Christine Trace] (Worst) Final score for {user.full_name}: base {base_score} + bonus {bonus_total}")
         return worst_scores
     except Exception as e:
         logger.error(f"Error calculating worst-case scores: {e}")
@@ -540,11 +445,7 @@ def calculate_best_case_scores():
     Calculates best-case final scores for all users by combining the base score (from finished games)
     with the best-case bonus from simulating the remaining rounds (regional and interregional).
     
-    This version runs two simulations per region:
-      1. Overall simulation (simulate_overall=True) to determine the overall regional winners for interregional rounds.
-      2. Player-filtered simulation (simulate_overall=False) to calculate bonus points, awarding bonus only when the player's team wins a matchup.
-    
-    Interregional rounds (Final Four and Championship) are simulated using the overall regional winners.
+    For each region, the combined best-case simulation is run only once.
     """
     with open("tournament_bracket.json", "r") as f:
         tournament_data = json.load(f)
@@ -554,47 +455,59 @@ def calculate_best_case_scores():
     try:
         current_by_region, visible_by_region = get_round_game_status_by_region()
         users = session.query(User).all()
+        overall_regional_winners = {}
+        player_regional_bonus = 0
         for user in users:
+            # Reset per user.
             score_obj = session.query(UserScore).filter_by(user_id=user.user_id).first()
             base_score = score_obj.points if score_obj else 0.0
             player_pick_set = {pick.team_name.strip() for pick in user.picks}
-            
-            player_regional_bonus = 0
             overall_regional_winners = {}
+            player_regional_bonus = 0
+
             for region in regions:
                 region_name = region.get("region_name", "Unknown")
-                bracket = build_regional_bracket(region)
                 current_round = current_by_region.get(region_name, ROUND_ORDER[0])
-                
-                # Overall simulation: ignore player's picks to determine regional winner.
-                overall_bonus, overall_winner = simulate_bracket_best_case_region(
-                    region_name, bracket, player_pick_set, visible_by_region, current_round, username=user.full_name, simulate_overall=True
+                bonus, winner = simulate_dynamic_bracket_best_combined(
+                    region_name, visible_by_region, player_pick_set, current_round, username=user.full_name
                 )
-                overall_regional_winners[region_name] = overall_winner
-                
-                # Player-filtered simulation: compute bonus only if the player's team wins matchups.
-                bonus, winner = simulate_bracket_best_case_region(
-                    region_name, bracket, player_pick_set, visible_by_region, current_round, username=user.full_name, simulate_overall=False
-                )
+                overall_regional_winners[region_name] = winner
                 player_regional_bonus += bonus
-                if user.full_name and "Jody" in user.full_name:
-                    logger.info(f"[Jody Trace] (Best) Region {region_name}: bonus {bonus}, winner {winner}")
+                if user.full_name and "Christine" in user.full_name:
+                    logger.info(f"[Christine Trace] (Best) Region {region_name}: bonus {bonus}, winner {winner}")
             
-            # Use overall regional winners to simulate interregional rounds.
+            # Interregional simulation using overall regional winners.
+            player_interregional_bonus = 0
             if len(overall_regional_winners) == 4:
                 inter = simulate_interregional_bracket(overall_regional_winners)
                 current_global_round, global_visible = get_round_game_status()
-                ff_finished_games = global_visible.get("Final Four", [])
-                ff_survivor, ff_bonus, _ = simulate_round_best(inter["Final Four"], player_pick_set, "Final Four", finished_games=ff_finished_games, username=user.full_name, player_pick_set=player_pick_set)
-                champ_finished_games = global_visible.get("Championship", [])
-                champ_survivor, champ_bonus, _ = simulate_round_best(inter["Championship"], player_pick_set, "Championship", finished_games=champ_finished_games, username=user.full_name, player_pick_set=player_pick_set)
+                ff_bonus = 0
+                for matchup in inter["Final Four"]:
+                    candidate = set(matchup).intersection(player_pick_set) if player_pick_set else set()
+                    if candidate:
+                        chosen = list(candidate)[0]
+                        ff_bonus += int(ROUND_WEIGHTS.get("Final Four", 1))
+                    else:
+                        chosen = list(matchup)[0]
+                    if user.full_name and "Christine" in user.full_name:
+                        logger.info(f"[Christine Trace] (Best) Interregional matchup {matchup} => winner: {chosen}")
+                champ_bonus = 0
+                for matchup in inter["Championship"]:
+                    candidate = set(matchup).intersection(player_pick_set) if player_pick_set else set()
+                    if candidate:
+                        chosen = list(candidate)[0]
+                        champ_bonus += int(ROUND_WEIGHTS.get("Championship", 1))
+                    else:
+                        chosen = list(matchup)[0]
+                    if user.full_name and "Christine" in user.full_name:
+                        logger.info(f"[Christine Trace] (Best) Championship matchup {matchup} => winner: {chosen}")
                 player_interregional_bonus = ff_bonus + champ_bonus
             else:
                 player_interregional_bonus = 0
-            
+
             best_scores[user.full_name] = base_score + player_regional_bonus + player_interregional_bonus
-            if user.full_name and "Jody" in user.full_name:
-                logger.info(f"[Jody Trace] (Best) Final score for {user.full_name}: base {base_score} + bonus {player_regional_bonus + player_interregional_bonus}")
+            if user.full_name and "Christine" in user.full_name:
+                logger.info(f"[Christine Trace] (Best) Final score for {user.full_name}: base {base_score} + bonus {player_regional_bonus + player_interregional_bonus}")
         return best_scores
     except Exception as e:
         logger.error(f"Error calculating best-case scores: {e}")
