@@ -223,82 +223,87 @@ def generate_locked_positions_section(
     worst_case_scores
 ):
     """
-    Displays locked positions for 1st, 2nd, 3rd, and Last based on the following logic:
-    
-    For 1st, 2nd, and 3rd:
-      - Among the remaining candidates, a candidate is locked for that position if his/her worst-case score 
-        is greater than or equal to every other candidate's best-case score.
-      - If one candidate meets this condition, they are locked alone.
-      - If 2 or 3 candidates meet the condition, they are all locked together (separated by '/').
-      - Once a position is locked, those candidates are removed from consideration for lower positions.
-    
-    For Last:
-      - First, identify candidate A as the player with the lowest best-case score.
-      - Then, any candidate whose worst-case score is less than or equal to candidate A's best-case score qualifies.
-      - If more than three candidates qualify, then no candidate is locked into Last.
-    """
-    from reportlab.platypus import Paragraph, Spacer
+    Determines and displays the locked positions for 1st, 2nd, 3rd, and Last based on the following rules:
 
+    For 1st, 2nd, and 3rd positions:
+      1. Assume sorted_users is ordered by current score (highest first).
+      2. For the current position:
+         a. Select candidate A as the first candidate in the remaining candidates.
+         b. Use candidate A’s worst-case score as the threshold.
+         c. All remaining candidates whose best-case score is greater than or equal to that threshold qualify.
+         d. If more than three candidates qualify, no one is locked for that position.
+         e. If exactly one candidate qualifies, they are locked for that position and removed from further consideration.
+         f. If two or three candidates qualify (a tie), they are locked together and lower positions are not evaluated.
+         
+    For Last:
+      1. Identify candidate A as the player with the lowest best-case score (from the complete sorted list).
+      2. All candidates whose worst-case score is less than or equal to candidate A’s best-case score qualify.
+      3. If more than three candidates qualify, then no candidate is locked for Last.
+    """
     # Build a lookup for current scores.
     current_scores = {row['username']: row['points'] for _, row in user_points_df.iterrows()}
 
-    # For winners positions (1st, 2nd, 3rd) we define a helper that locks candidates from a given group.
-    def is_locked_for_position(u, group):
-        # u is locked if, for every other candidate in group, u's worst-case >= their best-case.
-        u_wc = worst_case_scores.get(u, current_scores[u])
-        for other in group:
-            if other == u:
-                continue
-            o_bc = best_case_scores.get(other, current_scores[other])
-            if o_bc > u_wc:
-                return False
-        return True
+    # For winners positions, work sequentially.
+    remaining_candidates = sorted_users[:]  # Assume already sorted descending by current score.
+    winners_locked = {}
 
-    def lock_next_position(group):
-        # Return candidates locked for this position from group.
-        locked = [u for u in group if is_locked_for_position(u, group)]
-        # If more than 3 are locked, cap the group at 3 (using alphabetical order as tie-breaker)
-        return sorted(locked)[:3] if locked else []
+    for position in ["1st", "2nd", "3rd"]:
+        if not remaining_candidates:
+            winners_locked[position] = []
+            continue
 
-    # For the winners positions, we remove locked candidates as we move down.
-    remaining_for_winners = sorted_users[:]  # assume sorted by current score descending
-    locked_1st = lock_next_position(remaining_for_winners)
-    remaining_for_winners = [u for u in remaining_for_winners if u not in locked_1st]
-    locked_2nd = lock_next_position(remaining_for_winners)
-    remaining_for_winners = [u for u in remaining_for_winners if u not in locked_2nd]
-    locked_3rd = lock_next_position(remaining_for_winners)
-    # We don't remove further for 3rd since that's the last winner position.
+        # Select candidate A as the first candidate in the remaining list.
+        candidate_A = remaining_candidates[0]
+        threshold = worst_case_scores.get(candidate_A, current_scores[candidate_A])
 
-    # For Last position: New logic based on candidate A's best-case score.
-    # First, identify candidate A as the player with the lowest best-case score.
-    candidate_A = min(
+        # Qualifiers: those whose best-case score is >= candidate A's worst-case.
+        qualifiers = [
+            u for u in remaining_candidates
+            if best_case_scores.get(u, current_scores[u]) >= threshold
+        ]
+
+        # If more than three candidates qualify, we do not lock any candidate for this position.
+        if len(qualifiers) > 3:
+            winners_locked[position] = []
+        else:
+            locked = sorted(qualifiers)  # Sorting alphabetically as tie-breaker.
+            winners_locked[position] = locked
+
+            # If a single candidate is locked, remove them from further consideration.
+            # If there is a tie (2 or 3 qualifiers), lower positions are not evaluated.
+            if len(locked) == 1:
+                remaining_candidates.remove(locked[0])
+            else:
+                # Tie: Stop evaluating lower positions.
+                break
+
+    # Determine the locked candidate(s) for the Last position.
+    # Identify candidate A as the one with the lowest best-case score from all sorted candidates.
+    candidate_A_last = min(
         sorted_users,
         key=lambda u: best_case_scores.get(u, current_scores[u])
     )
-    threshold = best_case_scores.get(candidate_A, current_scores[candidate_A])
+    threshold_last = best_case_scores.get(candidate_A_last, current_scores[candidate_A_last])
     
-    # Then, any candidate whose worst-case score is less than or equal to candidate A's best-case score qualifies.
-    locked_candidates = [
-        u for u in sorted_users if worst_case_scores.get(u, current_scores[u]) <= threshold
+    # Qualifiers are those whose worst-case score is <= candidate A's best-case.
+    qualifiers_last = [
+        u for u in sorted_users
+        if worst_case_scores.get(u, current_scores[u]) <= threshold_last
     ]
     
-    # If more than three candidates meet this condition, don't lock any.
-    if len(locked_candidates) > 3:
-        locked_last = []
-    else:
-        locked_last = sorted(locked_candidates)  # Sorting alphabetically as tie-breaker
+    # If more than three candidates qualify, then no candidate is locked for Last.
+    locked_last = sorted(qualifiers_last) if len(qualifiers_last) <= 3 else []
 
     def format_line(label, user_list):
         if not user_list:
             return f"<para align='center'><b>{label}</b> - TBD</para>"
-        # Join names with '/'
-        return f"<para align='center'><b>{label}</b> - {' / '.join(sorted(user_list))}</para>"
+        return f"<para align='center'><b>{label}</b> - {' / '.join(user_list)}</para>"
 
-    # Build the output lines.
+    # Build output lines.
     lines = [
-        format_line("1st", locked_1st),
-        format_line("2nd", locked_2nd),
-        format_line("3rd", locked_3rd),
+        format_line("1st", winners_locked.get("1st", [])),
+        format_line("2nd", winners_locked.get("2nd", [])),
+        format_line("3rd", winners_locked.get("3rd", [])),
         format_line("Last", locked_last)
     ]
 

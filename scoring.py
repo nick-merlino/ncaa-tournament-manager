@@ -424,8 +424,6 @@ def simulate_interregional_bracket_worst_dynamic(regional_champs, player_pick_se
       - If no finished game exists for a matchup, simulate it by choosing the team not in the player's picks if possible.
         If both teams are in the player's picks, simulate a win (adding the bonus weight for that round).
       - The same approach is applied for the Championship round.
-      
-    When "Jason" is in the username, extra logging shows which games are being processed and how bonus points are applied.
 
     Returns:
       (total_bonus, overall_champion)
@@ -437,9 +435,6 @@ def simulate_interregional_bracket_worst_dynamic(regional_champs, player_pick_se
     total_bonus = 0
     ff_winners = []
     regions = list(regional_champs.keys())
-    
-    if username and "Jason" in username:
-        logger.debug(f"[Jason DEBUG] Starting interregional simulation for user: {username}")
     
     # Define Final Four matchups (order based on regional order).
     final_four = [
@@ -455,44 +450,32 @@ def simulate_interregional_bracket_worst_dynamic(regional_champs, player_pick_se
             if winner:
                 matchup_set = frozenset([game.get("team1", "").strip(), game.get("team2", "").strip()])
                 finished_ff[matchup_set] = winner
-                if username and "Jason" in username:
-                    logger.debug(f"[Jason DEBUG] Found finished Final Four game: {game.get('team1', '').strip()} vs {game.get('team2', '').strip()} - Winner: {winner}")
-    
+                
     # Process each Final Four matchup.
     for matchup in final_four:
         matchup_set = frozenset(matchup)
         if matchup_set in finished_ff:
             # Finished game: use the actual result with no extra bonus.
             winner = finished_ff[matchup_set]
-            if username and "Jason" in username:
-                logger.debug(f"[Jason DEBUG] Final Four matchup {matchup} finished. Winner: {winner} (no bonus applied)")
             # If the finished result is not in the player's picks, mark elimination.
             if winner not in player_pick_set:
                 eliminated = True
-                if username and "Jason" in username:
-                    logger.debug(f"[Jason DEBUG] Player's pick not in finished game result for matchup {matchup}. Marking as eliminated.")
-            ff_winners.append(winner)
+                ff_winners.append(winner)
         else:
             # No finished game: simulate the matchup.
             not_in = [team for team in matchup if team not in player_pick_set]
             if not_in:
                 # Worst-case: force the loss of the team in the player's picks.
                 winner = not_in[0]
-                if username and "Jason" in username:
-                    logger.debug(f"[Jason DEBUG] Simulated Final Four matchup {matchup}: forcing win for {winner} (player pick not present)")
             else:
                 # Both teams are in the player's picks: worst-case simulation awards bonus.
                 winner = matchup[0]
                 bonus = int(ROUND_WEIGHTS.get("Final Four", 1))
                 total_bonus += bonus
-                if username and "Jason" in username:
-                    logger.debug(f"[Jason DEBUG] Simulated Final Four matchup {matchup}: both teams in picks. Awarding bonus {bonus} and choosing {winner}")
             ff_winners.append(winner)
     
     # If any finished game showed the player's pick lost, clear potential bonus.
     if eliminated:
-        if username and "Jason" in username:
-            logger.debug(f"[Jason DEBUG] Player eliminated in Final Four. Clearing potential bonus (was {total_bonus}).")
         total_bonus = 0
     
     # Process Championship round.
@@ -508,34 +491,20 @@ def simulate_interregional_bracket_worst_dynamic(regional_champs, player_pick_se
                 if game_set == championship_set:
                     champ_winner = winner
                     champ_finished = True
-                    if username and "Jason" in username:
-                        logger.debug(f"[Jason DEBUG] Found finished Championship game: {game.get('team1', '').strip()} vs {game.get('team2', '').strip()} - Winner: {winner}")
                     break
     if champ_finished:
         # Use finished championship result; no bonus is added.
         if champ_winner not in player_pick_set:
-            if username and "Jason" in username:
-                logger.debug(f"[Jason DEBUG] Championship finished, but player's pick lost ({champ_winner}). No bonus added.")
             total_bonus = 0
-        else:
-            if username and "Jason" in username:
-                logger.debug(f"[Jason DEBUG] Championship finished and player's pick won ({champ_winner}). No additional bonus (current point only).")
     else:
         # No finished championship game: simulate it.
         not_in = [team for team in championship_matchup if team not in player_pick_set]
         if not_in:
             champ_winner = not_in[0]
-            if username and "Jason" in username:
-                logger.debug(f"[Jason DEBUG] Simulated Championship matchup {championship_matchup}: forcing win for {champ_winner} (player pick not present)")
         else:
             champ_winner = championship_matchup[0]
             bonus = int(ROUND_WEIGHTS.get("Championship", 1))
             total_bonus += bonus
-            if username and "Jason" in username:
-                logger.debug(f"[Jason DEBUG] Simulated Championship matchup {championship_matchup}: both teams in picks. Awarding bonus {bonus} and choosing {champ_winner}")
-    
-    if username and "Jason" in username:
-        logger.debug(f"[Jason DEBUG] Final interregional simulation: total potential bonus = {total_bonus}, overall champion = {champ_winner}")
     
     return total_bonus, champ_winner
 
@@ -550,17 +519,12 @@ def simulate_interregional_bracket_best_dynamic(regional_champs, player_pick_set
             If neither team is in the picks, choose arbitrarily with no bonus.
       - The Championship game is handled similarly.
     
-    When "Jason" is in the username, additional debug logging is output to trace which teams are detected in the player's picks.
-    
     Returns:
       (total_bonus, overall_champion)
     """
     # Retrieve finished game data.
     global_current, global_visible = get_round_game_status()
-    
-    if username and "Jason" in username:
-        logger.debug(f"[Jason DEBUG] Starting best-case interregional simulation for user: {username}")
-    
+        
     # Build lookup for finished Final Four games.
     finished_ff = {}
     if "Final Four" in global_visible:
@@ -569,9 +533,7 @@ def simulate_interregional_bracket_best_dynamic(regional_champs, player_pick_set
             if winner:
                 matchup_set = frozenset([game.get("team1", "").strip(), game.get("team2", "").strip()])
                 finished_ff[matchup_set] = winner
-                if username and "Jason" in username:
-                    logger.debug(f"[Jason DEBUG] Found finished Final Four game: {game.get('team1', '').strip()} vs {game.get('team2', '').strip()} - Winner: {winner}")
-    
+                
     # Build Final Four matchups based on the regional champions.
     regions = list(regional_champs.keys())
     final_four = [
@@ -587,8 +549,6 @@ def simulate_interregional_bracket_best_dynamic(regional_champs, player_pick_set
         if matchup_set in finished_ff:
             # Use the finished game result; no bonus is added.
             winner = finished_ff[matchup_set]
-            if username and "Jason" in username:
-                logger.debug(f"[Jason DEBUG] Final Four matchup {matchup} finished. Winner: {winner} (no bonus applied)")
             ff_winners.append(winner)
         else:
             # Simulate the matchup if not finished.
@@ -596,13 +556,9 @@ def simulate_interregional_bracket_best_dynamic(regional_champs, player_pick_set
             if in_team:
                 winner = in_team[0]
                 bonus = int(ROUND_WEIGHTS.get("Final Four", 1))
-                if username and "Jason" in username:
-                    logger.debug(f"[Jason DEBUG] Best-case: Found team in picks {in_team} for matchup {matchup}. Choosing {winner} with bonus {bonus}")
             else:
                 winner = matchup[0]
                 bonus = 0
-                if username and "Jason" in username:
-                    logger.debug(f"[Jason DEBUG] Best-case: No team in picks for matchup {matchup}. Choosing {winner} with no bonus")
             total_bonus += bonus
             ff_winners.append(winner)
     
@@ -619,29 +575,16 @@ def simulate_interregional_bracket_best_dynamic(regional_champs, player_pick_set
                 if game_set == championship_set:
                     champ_winner = winner
                     champ_finished = True
-                    if username and "Jason" in username:
-                        logger.debug(f"[Jason DEBUG] Found finished Championship game: {game.get('team1', '').strip()} vs {game.get('team2', '').strip()} - Winner: {winner}")
                     break
-    if champ_finished:
-        # Finished championship: use its result with no bonus.
-        if username and "Jason" in username:
-            logger.debug(f"[Jason DEBUG] Championship finished. Using result {champ_winner} with no bonus")
-    else:
+    if not champ_finished:
         in_team = [team for team in championship_matchup if team in player_pick_set]
         if in_team:
             champ_winner = in_team[0]
             champ_bonus = int(ROUND_WEIGHTS.get("Championship", 1))
-            if username and "Jason" in username:
-                logger.debug(f"[Jason DEBUG] Best-case: Found team in picks in Championship matchup {championship_matchup}: {in_team}. Choosing {champ_winner} with bonus {champ_bonus}")
         else:
             champ_winner = championship_matchup[0]
             champ_bonus = 0
-            if username and "Jason" in username:
-                logger.debug(f"[Jason DEBUG] Best-case: No team in picks for Championship matchup {championship_matchup}. Choosing {champ_winner} with no bonus")
         total_bonus += champ_bonus
-    
-    if username and "Jason" in username:
-        logger.debug(f"[Jason DEBUG] Best-case interregional simulation: total bonus = {total_bonus}, overall champion = {champ_winner}")
     
     return total_bonus, champ_winner
 
@@ -679,8 +622,6 @@ def calculate_worst_case_scores():
                 # If the current round for this region is complete, ignore potential bonus.
                 if current_round in visible_by_region.get(region_name, {}) and \
                    all(game.get("winner", "").strip() for game in visible_by_region[region_name][current_round]):
-                    if "Jason" in user.full_name:
-                        logger.debug(f"[Jason DEBUG] Regional round '{current_round}' in region '{region_name}' is complete. Ignoring potential bonus {bonus} from simulation.")
                     bonus = 0
                 bonus_total += bonus
                 if winner:
