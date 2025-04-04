@@ -15,7 +15,7 @@ It is structured in seven steps:
   7. Final Score Calculation for Future Rounds: Implemented in calculate_worst_case_scores()
      and calculate_best_case_scores().
 
-Logging (prefixed with "[Varoutsos Trace]") is output only if "Varoutsos" appears in the username.
+Logging (prefixed with "[Jody Trace]") is output only if "Jody" appears in the username.
 """
 
 from pprint import pprint
@@ -303,41 +303,43 @@ def simulate_round_best(matchups, active_set, round_name, finished_games=None, u
         if candidate:
             chosen = list(candidate)[0]
             round_bonus += int(ROUND_WEIGHTS.get(round_name, 1))
-            if username and "Varoutsos" in username:
-                logger.info(f"[Varoutsos Trace] (Best) Player's team {chosen} (in active set and matchup {matchup}) wins, awarding bonus {ROUND_WEIGHTS.get(round_name, 1)}")
+            if username and "Jody" in username:
+                logger.info(f"[Jody Trace] (Best) Player's team {chosen} (in active set and matchup {matchup}) wins, awarding bonus {ROUND_WEIGHTS.get(round_name, 1)}")
         else:
             # Fallback: choose from teams in the matchup that are in the overall active set.
             candidate_active = set(matchup).intersection(active_set)
             if candidate_active:
                 chosen = list(candidate_active)[0]
-                if username and "Varoutsos" in username:
-                    logger.info(f"[Varoutsos Trace] (Best) Active team {chosen} wins matchup {matchup} but is not in player's picks; no bonus awarded")
+                if username and "Jody" in username:
+                    logger.info(f"[Jody Trace] (Best) Active team {chosen} wins matchup {matchup} but is not in player's picks; no bonus awarded")
             else:
                 chosen = list(matchup)[0]
-                if username and "Varoutsos" in username:
-                    logger.info(f"[Varoutsos Trace] (Best) No active team in matchup {matchup}; arbitrarily choosing: {chosen}")
+                if username and "Jody" in username:
+                    logger.info(f"[Jody Trace] (Best) No active team in matchup {matchup}; arbitrarily choosing: {chosen}")
         winners.append(chosen)
     propagated = winners[0] if winners else None
     return propagated, round_bonus, winners
-
 def simulate_round_worst(matchups, active_set, round_name, finished_games=None, username=None, player_pick_set=None):
     """
     Simulate one round under worst-case assumptions.
-    
+
     For each matchup:
       - If a finished game result exists in finished_games, use it.
-      - Otherwise, determine the teams in the matchup that are in the overall active set.
-      - Then, from that intersection, try to choose a team that is NOT in the player's picks
-        (to force a loss for the player).
-      - If all active teams in the matchup are player's teams, then choose one (player loses).
-      - If no team in the matchup is in the active set, choose arbitrarily.
+      - Otherwise, determine the set of active teams in the matchup ('inter')
+        and the subset of those that the player picked ('player_inter').
+      - If there exists any active team that the player did NOT pick,
+        choose one from that set (forcing a loss, no bonus).
+      - Otherwise, if all active teams in the matchup are the player's teams,
+        choose one (and award bonus points, since the player's team must progress).
+      - If no active team is present in the matchup, choose arbitrarily.
     
-    Bonus points are always 0 in worst-case simulation.
+    In worst-case simulation bonus points are only added when the matchup is
+    entirely composed of the player's teams.
     
     Returns:
       A tuple (propagated_winner, round_bonus, winners)
     """
-    round_bonus = 0  # Worst-case always yields 0 bonus.
+    round_bonus = 0  # Default bonus is 0 unless all active teams are player's.
     winners = []
     for matchup in matchups:
         # Use finished game result if available.
@@ -347,24 +349,28 @@ def simulate_round_worst(matchups, active_set, round_name, finished_games=None, 
                 winners.append(winner)
                 continue
 
-        # Teams in the matchup that are still active.
+        # Determine active teams from the matchup.
         inter = set(matchup).intersection(active_set)
-        # From those, prefer teams not chosen by the player.
-        candidate = inter - player_pick_set if player_pick_set is not None else inter
+        # Determine which of these active teams are in the player's picks.
+        player_inter = set(matchup).intersection(player_pick_set) if player_pick_set else set()
 
-        if candidate:
-            chosen = list(candidate)[0]
-            if username and "Varoutsos" in username:
-                logger.info(f"[Varoutsos Trace] (Worst) In matchup {matchup}, choosing non-player team: {chosen}")
+        # If any active team is NOT a player's team, choose that to force a loss.
+        non_player_candidates = inter - player_inter
+        if non_player_candidates:
+            chosen = list(non_player_candidates)[0]
+            if username and "Jody" in username:
+                logger.info(f"[Jody Trace] (Worst) In matchup {matchup}, choosing non-player team: {chosen}")
         elif inter:
-            # All active teams in this matchup are player's teams.
+            # All active teams in the matchup are player's teams.
             chosen = list(inter)[0]
-            if username and "Varoutsos" in username:
-                logger.info(f"[Varoutsos Trace] (Worst) In matchup {matchup}, only player's teams available; choosing: {chosen}")
+            round_bonus += int(ROUND_WEIGHTS.get(round_name, 1))
+            if username and "Jody" in username:
+                logger.info(f"[Jody Trace] (Worst) In matchup {matchup}, only player's teams available; choosing {chosen} and awarding bonus {ROUND_WEIGHTS.get(round_name, 1)}")
         else:
+            # No active team present; choose arbitrarily.
             chosen = list(matchup)[0]
-            if username and "Varoutsos" in username:
-                logger.info(f"[Varoutsos Trace] (Worst) No active team in matchup {matchup}; arbitrarily choosing: {chosen}")
+            if username and "Jody" in username:
+                logger.info(f"[Jody Trace] (Worst) No active team in matchup {matchup}; arbitrarily choosing: {chosen}")
         winners.append(chosen)
     propagated = winners[0] if winners else None
     return propagated, round_bonus, winners
@@ -373,20 +379,20 @@ def simulate_round_worst(matchups, active_set, round_name, finished_games=None, 
 def simulate_bracket_worst_case_region(region, bracket, player_pick_set, visible_by_region, current_round, username=None):
     """
     Simulate the remaining rounds in a region under worst-case assumptions.
-    
-    The simulation uses the overall active set from finished rounds but then applies
-    a worst-case filter: in each matchup, if possible, a team not in the player's picks is chosen.
+
+    The simulation uses the overall active set from finished rounds and, for each round,
+    attempts to force a loss for the player by selecting an active team not picked by the player.
+    However, if in any matchup all active teams belong to the player (i.e. the player has both teams),
+    then one of those is chosen and bonus points are awarded.
     
     Returns:
       (total_bonus, final_survivor)
     """
-    # Compute the overall active teams for the region.
+    # Get the active set for the region.
     active_set = get_active_set(region, visible_by_region)
-    # In worst-case, we want to force a loss for the player, so we pass the player's picks
-    # to the simulation so that if there's an alternative, we avoid the player's team.
-    if username and "Varoutsos" in username:
-        logger.info(f"[Varoutsos Trace] (Worst Bracket - {region}) Starting active_set: {active_set}")
-    total_bonus = 0  # Worst-case bonus remains 0.
+    if username and "Jody" in username:
+        logger.info(f"[Jody Trace] (Worst Bracket - {region}) Starting active_set: {active_set}")
+    total_bonus = 0  # Worst-case bonus starts at 0.
     final_survivor = None
     start_index = ROUND_ORDER.index(current_round)
     for r in ROUND_ORDER[start_index:]:
@@ -395,15 +401,16 @@ def simulate_bracket_worst_case_region(region, bracket, player_pick_set, visible
         matchups = bracket[r]
         finished_games = visible_by_region.get(region, {}).get(r, [])
         propagated, bonus, winners = simulate_round_worst(matchups, active_set, r, finished_games, username, player_pick_set=player_pick_set)
-        total_bonus += bonus  # bonus is 0 here.
+        total_bonus += bonus  # bonus is only added when the player's teams cover the matchup.
         final_survivor = propagated
-        if username and "Varoutsos" in username:
-            logger.info(f"[Varoutsos Trace] (Worst Bracket - {region}) After round {r}, winners: {winners}")
-        # Update active_set for next round.
+        if username and "Jody" in username:
+            logger.info(f"[Jody Trace] (Worst Bracket - {region}) After round {r}, winners: {winners}")
+        # Update active_set to be the winners for the next round.
         active_set = set(winners)
-        if username and "Varoutsos" in username:
-            logger.info(f"[Varoutsos Trace] (Worst Bracket - {region}) After round {r}, active_set: {active_set}, cumulative bonus: {total_bonus}")
+        if username and "Jody" in username:
+            logger.info(f"[Jody Trace] (Worst Bracket - {region}) After round {r}, active_set: {active_set}, cumulative bonus: {total_bonus}")
     return total_bonus, final_survivor
+
 
 
 def simulate_bracket_best_case_region(region, bracket, player_pick_set, visible_by_region, current_round, username=None, simulate_overall=False):
@@ -424,12 +431,12 @@ def simulate_bracket_best_case_region(region, bracket, player_pick_set, visible_
         active_set = active_set.intersection(player_pick_set)
     
     if not active_set:
-        if username and "Varoutsos" in username:
-            logger.info(f"[Varoutsos Trace] (Best Bracket - {region}) No active teams available. Skipping simulation.")
+        if username and "Jody" in username:
+            logger.info(f"[Jody Trace] (Best Bracket - {region}) No active teams available. Skipping simulation.")
         return 0, None
     
-    if username and "Varoutsos" in username:
-        logger.info(f"[Varoutsos Trace] (Best Bracket - {region}) Starting active_set: {active_set}")
+    if username and "Jody" in username:
+        logger.info(f"[Jody Trace] (Best Bracket - {region}) Starting active_set: {active_set}")
     total_bonus = 0
     final_survivor = None
     start_index = ROUND_ORDER.index(current_round)
@@ -441,13 +448,13 @@ def simulate_bracket_best_case_region(region, bracket, player_pick_set, visible_
         propagated, bonus, winners = simulate_round_best(matchups, active_set, r, finished_games, username, player_pick_set=player_pick_set)
         total_bonus += bonus
         final_survivor = propagated
-        if username and "Varoutsos" in username:
-            logger.info(f"[Varoutsos Trace] (Best Bracket - {region}) After round {r}, winners: {winners}")
+        if username and "Jody" in username:
+            logger.info(f"[Jody Trace] (Best Bracket - {region}) After round {r}, winners: {winners}")
         active_set = set(winners)
         if not simulate_overall:
             active_set = active_set.intersection(player_pick_set)
-        if username and "Varoutsos" in username:
-            logger.info(f"[Varoutsos Trace] (Best Bracket - {region}) After round {r}, active_set: {active_set}, cumulative bonus: {total_bonus}")
+        if username and "Jody" in username:
+            logger.info(f"[Jody Trace] (Best Bracket - {region}) After round {r}, active_set: {active_set}, cumulative bonus: {total_bonus}")
     return total_bonus, final_survivor
 
 
@@ -471,8 +478,8 @@ def simulate_interregional_bracket(regional_champs):
         (regional_champs[regions[2]], regional_champs[regions[3]])
     ]
     championship = [tuple(sorted(final_four[0] + final_four[1]))]
-    if "Varoutsos" in "".join(regional_champs.values()):
-        logger.info(f"[Varoutsos Trace] (Interregional) Final Four: {final_four}, Championship: {championship}")
+    if "Jody" in "".join(regional_champs.values()):
+        logger.info(f"[Jody Trace] (Interregional) Final Four: {final_four}, Championship: {championship}")
     return {"Final Four": final_four, "Championship": championship}
 
 # ---------------------------
@@ -505,8 +512,8 @@ def calculate_worst_case_scores():
                 bonus_total += bonus
                 if winner:
                     regional_winners[region_name] = winner
-                if user.full_name and "Varoutsos" in user.full_name:
-                    logger.info(f"[Varoutsos Trace] (Worst) Region {region_name}: bonus {bonus}, winner {winner}")
+                if user.full_name and "Jody" in user.full_name:
+                    logger.info(f"[Jody Trace] (Worst) Region {region_name}: bonus {bonus}, winner {winner}")
             # For simplicity, assume surviving regions are the raw winners.
             if len(regional_winners) == 4:
                 inter = simulate_interregional_bracket(regional_winners)
@@ -514,11 +521,11 @@ def calculate_worst_case_scores():
                 ff_finished_games = global_visible.get("Final Four", [])
                 ff_survivor, ff_bonus, _ = simulate_round_worst(inter["Final Four"], player_pick_set, "Final Four", finished_games=ff_finished_games, username=user.full_name)
                 bonus_total += ff_bonus
-                if user.full_name and "Varoutsos" in user.full_name:
-                    logger.info(f"[Varoutsos Trace] (Worst) Interregional: bonus {ff_bonus}, FF survivor {ff_survivor}")
+                if user.full_name and "Jody" in user.full_name:
+                    logger.info(f"[Jody Trace] (Worst) Interregional: bonus {ff_bonus}, FF survivor {ff_survivor}")
             worst_scores[user.full_name] = base_score + bonus_total
-            if user.full_name and "Varoutsos" in user.full_name:
-                logger.info(f"[Varoutsos Trace] (Worst) Final score for {user.full_name}: base {base_score} + bonus {bonus_total}")
+            if user.full_name and "Jody" in user.full_name:
+                logger.info(f"[Jody Trace] (Worst) Final score for {user.full_name}: base {base_score} + bonus {bonus_total}")
         return worst_scores
     except Exception as e:
         logger.error(f"Error calculating worst-case scores: {e}")
@@ -570,8 +577,8 @@ def calculate_best_case_scores():
                     region_name, bracket, player_pick_set, visible_by_region, current_round, username=user.full_name, simulate_overall=False
                 )
                 player_regional_bonus += bonus
-                if user.full_name and "Varoutsos" in user.full_name:
-                    logger.info(f"[Varoutsos Trace] (Best) Region {region_name}: bonus {bonus}, winner {winner}")
+                if user.full_name and "Jody" in user.full_name:
+                    logger.info(f"[Jody Trace] (Best) Region {region_name}: bonus {bonus}, winner {winner}")
             
             # Use overall regional winners to simulate interregional rounds.
             if len(overall_regional_winners) == 4:
@@ -586,8 +593,8 @@ def calculate_best_case_scores():
                 player_interregional_bonus = 0
             
             best_scores[user.full_name] = base_score + player_regional_bonus + player_interregional_bonus
-            if user.full_name and "Varoutsos" in user.full_name:
-                logger.info(f"[Varoutsos Trace] (Best) Final score for {user.full_name}: base {base_score} + bonus {player_regional_bonus + player_interregional_bonus}")
+            if user.full_name and "Jody" in user.full_name:
+                logger.info(f"[Jody Trace] (Best) Final score for {user.full_name}: base {base_score} + bonus {player_regional_bonus + player_interregional_bonus}")
         return best_scores
     except Exception as e:
         logger.error(f"Error calculating best-case scores: {e}")
